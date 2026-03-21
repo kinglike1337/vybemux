@@ -84,7 +84,7 @@ for submodule in plugins/*/; do
     name=$(basename "$submodule")
     if [ -d "$submodule/.git" ]; then
         cd "$submodule"
-        old_head=$(git rev-parse HEAD@{1} 2>/dev/null || echo "none")
+        old_head=$(git rev-parse "HEAD@{1}" 2>/dev/null || echo "none")
         new_head=$(git rev-parse HEAD)
 
         if [ "$old_head" != "$new_head" ]; then
