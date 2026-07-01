@@ -1,21 +1,7 @@
 # =============================================================================
-# tmux Configuration for Bash — Auto-attach, Aliases, Functions
+# tmux Configuration for Bash — Aliases, Functions
 # Source from .bashrc:  [ -f ~/.tmux.bash ] && . ~/.tmux.bash
 # =============================================================================
-
-# ---------------------------------------------------------------------------
-# Auto-attach for Code-Server terminals
-# Only activates in VS Code / Code-Server terminals, not in plain SSH.
-# Uses 'exec' so this MUST be sourced BEFORE anything that requires
-# "must be at end of file" placement (e.g., version managers, language initialization).
-# ---------------------------------------------------------------------------
-if command -v tmux &>/dev/null && \
-   [ -z "$TMUX" ] && \
-   [ "${TERM_PROGRAM:-}" = "vscode" ]; then
-    _tmux_session="$(basename "$PWD")"
-    _tmux_session="${_tmux_session//[.:]/-}"
-    exec tmux new-session -A -s "$_tmux_session"
-fi
 
 # ---------------------------------------------------------------------------
 # tmux Quick Access

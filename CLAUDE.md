@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-vybemux is a tmux configuration optimized for AI-assisted coding with Claude Code and OpenCode. Designed primarily for Code-Server (coder/code-server) environments, also works via SSH.
+vybemux is a tmux configuration optimized for AI-assisted coding with Claude Code and OpenCode. tmux runs on a remote host reached via SSH; Ghostty is the local terminal client.
 
 **Key Design Decision:** Plugins are bundled as git submodules (not fetched dynamically via TPM) to enable offline installation and reproducible deployments.
 
@@ -16,16 +16,14 @@ vybemux is a tmux configuration optimized for AI-assisted coding with Claude Cod
 git clone --recurse-submodules <repo-url>
 cd vybemux
 
-# Install with mode selection
-./install.sh --mode=auto      # Auto-attach in VS Code terminals
-./install.sh --mode=profile    # VS Code profile mode (selectable)
-./install.sh --mode=manual     # Aliases only, manual tmux start
+# Install
+./install.sh
 
 # Check installation status
 ./install.sh --status
 ```
 
-After installation, add this to `~/.bashrc` (after interactive check, before tools requiring end-of-file placement like SDKMAN):
+After installation, add this to `~/.bashrc` (after the interactive shell check):
 ```bash
 [ -f ~/.tmux.bash ] && . ~/.tmux.bash
 ```
@@ -39,7 +37,7 @@ git push
 
 ### Uninstallation
 ```bash
-./uninstall.sh    # Removes all config files, backups, VS Code profile
+./uninstall.sh    # Removes all config files and backups
 ```
 
 ### tmux Operations
@@ -57,13 +55,12 @@ tmux -f ~/.tmux.conf start-server \; kill-server
 ```
 vybemux/
 ├── tmux.conf          # Main tmux configuration (color, bindings, menus)
-├── tmux.bash          # Bash integration (auto-attach, aliases, functions)
-├── install.sh         # Installer with 3 modes (auto/profile/manual)
+├── tmux.bash          # Bash integration (aliases, functions)
+├── install.sh         # Installer (single mode) + --status/--help
 ├── uninstall.sh       # Complete uninstaller
 ├── update.sh          # Submodule update script
 ├── scripts/           # Helper scripts for tmux status bar
-│   ├── shorten-path.sh
-│   └── test-clipboard.sh
+│   └── shorten-path.sh
 └── plugins/           # Git submodules (not dynamically fetched)
     ├── tpm/           # tmux Plugin Manager (orchestrates other plugins)
     ├── tmux-resurrect/    # Session save/restore
@@ -71,27 +68,15 @@ vybemux/
     └── tmux-yank/         # Clipboard integration
 ```
 
-### Installation Modes
-
-The installer supports three distinct modes that affect how tmux is activated:
-
-| Mode | Auto-Attach | VS Code Profile | Use Case |
-|------|-------------|-----------------|----------|
-| `auto` | ✅ | ❌ | Primary development machine |
-| `profile` | ❌ | ✅ | Multi-environment setup |
-| `manual` | ❌ | ❌ | Occasional tmux usage |
-
-**Implementation:** `--mode=profile` and `--mode=manual` comment out the auto-attach block in `~/.tmux.bash` using sed.
-
 ### Clipboard Architecture (Important)
 
-vybemux is optimized for **Code-Server** where X11 tools may not be available:
+tmux runs remotely over SSH, so vybemux relies on OSC 52 rather than X11 clipboard tools:
 
-1. **OSC 52 passthrough**: `set-clipboard on` + `allow-passthrough on` enables nested OSC 52 (vim → tmux → xterm.js)
-2. **Mouse handling**: Disabled in Code-Server (`TERM_PROGRAM=vscode` check) to enable native browser selection
-3. **tmux-yank**: Configured with OSC 52 fallback when no clipboard tools detected
+1. **OSC 52 passthrough**: `set-clipboard on` + `allow-passthrough on` enables nested OSC 52 (vim → tmux → Ghostty)
+2. **tmux-yank**: `@custom_copy_command` forces OSC 52 so yanks reach the local clipboard without X11 tools
+3. **Mouse selection**: Mouse is always on (clickable menus, pane resize, copy mode); hold Shift while dragging for Ghostty's native text selection
 
-**Mouse Toggle:** `Ctrl+a Ctrl+t` (useful for testing clipboard behavior)
+**Mouse Toggle:** `Ctrl+a Ctrl+t` (toggles between tmux mouse mode and Ghostty native selection)
 
 ### Status Bar Components
 
@@ -101,21 +86,45 @@ The status bar uses clickable menus and displays:
 - `[+]` button (right, clickable → quick actions)
 - Shortened path, git branch, hostname, date
 
+## Ghostty Setup (Client Side)
+
+tmux runs on the remote host; Ghostty is the local client. Enable Ghostty's
+SSH integration in `~/.config/ghostty/config` so the terminfo and environment
+reach the remote host:
+
+```
+shell-integration-features = ssh-env,ssh-terminfo
+```
+
+- `ssh-terminfo` installs `xterm-ghostty` on the remote host via `tic` on
+  first connect (cached per user@host); falls back to `xterm-256color`.
+- `ssh-env` forwards `TERM_PROGRAM`, `TERM_PROGRAM_VERSION`, `COLORTERM`.
+
+Clipboard uses OSC 52 (the only reliable path over SSH); Ghostty supports
+OSC 52 writes natively.
+
+### Claude Code Compatibility
+
+The Kitty keyboard protocol (`extended-keys always`, `extended-keys-format
+csi-u`, `terminal-features xterm*:extkeys`) forwards extended key events
+through tmux, which is what allows Shift+Enter to work as a newline (not
+submit) in Claude Code running inside tmux.
+
 ## Key Files
 
 | File | Purpose |
 |------|---------|
 | `tmux.conf` | All tmux settings: colors, bindings, menus, plugin config |
-| `tmux.bash` | Auto-attach logic (lines 12-18), aliases, tmux-dev/project functions |
-| `install.sh` | Validation, backup, file copying, mode-specific modifications |
+| `tmux.bash` | Aliases, tmux-dev/project functions |
+| `install.sh` | Validation, backup, file copying |
 | `scripts/shorten-path.sh` | Path shortening for status bar (e.g., `~/p/vybemux`) |
 
 ## Configuration Patterns
 
 ### Adding AI Tool Commands
 AI tool commands appear in two places (must be updated in sync):
-1. `tmux.conf`: 6 `display-menu` blocks (lines 170-340)
-2. `tmux.bash`: Aliases (lines 34-40)
+1. `tmux.conf`: the Quick Actions menu (`MouseUp1StatusRight`) and the Window/Pane menu (`Prefix m`)
+2. `tmux.bash`: Aliases (`tw-claude`, `tw-opencode`, etc.)
 
 ### Tokyo Night Theme Colors
 Located in `tmux.conf` under "Status Bar" section:
@@ -137,7 +146,7 @@ tmux -f ~/.tmux.conf start-server \; kill-server
 Press Ctrl+a, then r
 ```
 
-For clipboard testing:
+For shell script changes:
 ```bash
-bash ~/.tmux/scripts/test-clipboard.sh
+shellcheck install.sh uninstall.sh update.sh scripts/*.sh
 ```

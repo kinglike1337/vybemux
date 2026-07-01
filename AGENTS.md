@@ -4,7 +4,7 @@ This file provides guidance for agentic coding assistants working in this reposi
 
 ## Project Overview
 
-vybemux is a tmux configuration optimized for AI-assisted coding (Claude Code/OpenCode) in Code-Server environments. Plugins are bundled as git submodules for offline installation.
+vybemux is a tmux configuration optimized for AI-assisted coding (Claude Code/OpenCode). tmux runs on a remote host reached via SSH; Ghostty is the local terminal client. Plugins are bundled as git submodules for offline installation.
 
 ## Build/Lint/Test Commands
 
@@ -21,8 +21,8 @@ tmux -f ~/.tmux.conf start-server \; kill-server
 ### Testing
 
 ```bash
-# Test clipboard integration
-bash scripts/test-clipboard.sh
+# Lint shell scripts
+shellcheck install.sh uninstall.sh update.sh scripts/*.sh
 
 # Check installation status
 ./install.sh --status
@@ -42,7 +42,7 @@ git commit -m 'Update submodules'
 git push
 
 # Install/uninstall vybemux
-./install.sh --mode=auto|profile|manual
+./install.sh
 ./uninstall.sh
 ```
 
@@ -115,14 +115,14 @@ git push
 
 **Adding AI Tool Commands:**
 Must update in sync across two files:
-1. `tmux.conf`: 6 `display-menu` blocks (lines 170-340)
-2. `tmux.bash`: Aliases (lines 34-40)
+1. `tmux.conf`: the Quick Actions menu (`MouseUp1StatusRight`) and the Window/Pane menu (`Prefix m`)
+2. `tmux.bash`: Aliases (`tw-claude`, `tw-opencode`, etc.)
 
 ### tmux Bash Integration (tmux.bash)
 
-**Auto-Attach Block:**
-- Lines 12-18: Check for `TERM_PROGRAM=vscode` before auto-attaching
-- Must be sourced BEFORE tools requiring end-of-file placement
+**Sourcing:**
+- Contains only aliases and functions; no auto-activation logic
+- Source in `~/.bashrc` after the interactive shell check
 
 **Aliases:**
 - Group related aliases with section headers
@@ -138,17 +138,17 @@ Must update in sync across two files:
 vybemux/
 ├── tmux.conf          # Main tmux configuration
 ├── tmux.bash          # Bash integration and aliases
-├── install.sh         # Installer with mode selection
+├── install.sh         # Installer (single mode) + --status/--help
 ├── uninstall.sh       # Uninstaller
 ├── update.sh          # Submodule updates
-├── scripts/           # Helper scripts (test-clipboard, shorten-path)
+├── scripts/           # Helper scripts (shorten-path)
 └── plugins/           # Git submodules (tpm, tmux-resurrect, tmux-continuum, tmux-yank)
 ```
 
 ## Important Notes
 
-- **Clipboard**: Code-Server uses OSC 52; SSH with X11 uses xsel/xclip
-- **Mouse**: Disabled in Code-Server (`TERM_PROGRAM=vscode` check)
+- **Clipboard**: OSC 52 only (tmux runs remotely over SSH; no X11 tools on the remote host); Ghostty supports OSC 52 natively
+- **Mouse**: Always on (`set -g mouse on`); Shift+drag gives Ghostty's native text selection
 - **Plugins**: Never modify plugin submodules directly; use `./update.sh`
-- **Installation Modes**: auto (default), profile (VS Code profile), manual (aliases only)
+- **Installation**: single mode (`./install.sh`); no auto-activation, start tmux via aliases
 - **Tokyo Night Colors**: Background #1a1b26, Accent #7aa2f7, Button #e0af68

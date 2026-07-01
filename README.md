@@ -1,7 +1,8 @@
 # vybemux
 
 A tmux configuration optimized for AI-assisted coding with Claude Code and OpenCode.
-Designed for Code-Server (coder/code-server) environments, also works via SSH.
+tmux runs on a remote host reached via SSH; [Ghostty](https://ghostty.org) is the
+local terminal client.
 
 ## Features
 
@@ -9,58 +10,66 @@ Designed for Code-Server (coder/code-server) environments, also works via SSH.
 - **Clickable status bar** with [+] menu button, shortened path, git branch, hostname, and date
 - **AI tool integration**: Launch Claude Code and OpenCode directly from tmux menus and aliases (resume/continue/new)
 - **Session persistence**: tmux-resurrect + tmux-continuum (auto-save every 15 minutes, auto-restart Claude/OpenCode after reboot)
-- **Flexible installation modes**: Auto-attach, VS Code profile, or manual activation
 - **Mouse support**: Clickable menus, pane resize, copy mode
 - **Vi-keybindings**: Copy mode with vi keys
 - **Offline installation**: All plugins bundled as git submodules
 
+## Ghostty (client setup)
+
+tmux runs on the remote host; Ghostty is the local client. Enable Ghostty's
+SSH integration in `~/.config/ghostty/config` so the terminfo and environment
+reach the remote host:
+
+```
+shell-integration-features = ssh-env,ssh-terminfo
+```
+
+- `ssh-terminfo` installs `xterm-ghostty` on the remote host via `tic` on
+  first connect (cached per user@host); falls back to `xterm-256color`.
+- `ssh-env` forwards `TERM_PROGRAM`, `TERM_PROGRAM_VERSION`, `COLORTERM`.
+
+Clipboard uses OSC 52 (the only reliable path over SSH); Ghostty supports
+OSC 52 writes natively.
+
+## Claude Code compatibility
+
+The Kitty keyboard protocol (`extended-keys always`) is enabled so Claude Code
+running inside tmux can see Shift+Enter as a newline instead of a submit.
+
+Ghostty click handling can need 2-3 presses to register on the status bar or
+in a pane; vybemux works around this by binding menu clicks and pane
+selection to mouse-up instead of mouse-down. If you still see stray clicks,
+hold **Shift** while dragging to use Ghostty's native text selection instead
+of tmux mouse mode.
+
 ## Clipboard Integration
 
-vybemux is optimized for **Code-Server environments** where traditional X11/Wayland clipboard tools (xsel/xclip) may not be available.
+tmux runs on a remote host over SSH, so vybemux relies on **OSC 52** rather than
+X11/Wayland clipboard tools on the remote side.
 
 ### OSC 52 Support
 
-The configuration enables **OSC 52** — a terminal escape sequence that allows tmux and applications (vim/neovim) to copy directly to the browser/VS Code clipboard without X11:
+The configuration enables OSC 52 — a terminal escape sequence that lets tmux and
+applications (vim/neovim) copy directly to the local clipboard through the SSH
+connection:
 
 - `set-clipboard on` — enables OSC 52 clipboard passthrough
-- `allow-passthrough on` — allows nested OSC 52 sequences (e.g., vim inside tmux inside xterm.js)
-- `tmux-yank fallback` — configured with OSC 52 as fallback when no clipboard tools available
+- `allow-passthrough on` — allows nested OSC 52 sequences (e.g., vim inside tmux inside Ghostty)
+- `tmux-yank`'s `@custom_copy_command` forces OSC 52 so yanks always reach the local clipboard, without needing `xsel`/`xclip` on the remote host
 
-**How it works:**
-- **SSH with X11:** Uses `xsel`/`xclip` if installed (preferred)
-- **Code-Server:** Falls back to OSC 52 (works in browser terminals)
-- **macOS:** Uses `pbcopy` if available
+Ghostty supports OSC 52 writes natively, so no client-side configuration is
+needed beyond the SSH integration described in [Ghostty (client setup)](#ghostty-client-setup).
 
-### Code-Server Mouse Support
+### Mouse Support
 
-**Important:** Mouse support is **disabled** in Code-Server environments to enable native xterm.js selection and prevent the "0/0" selection indicator issue.
+Mouse is always on: clickable status-bar menus, click-to-select panes, pane
+resize, and copy mode with mouse drag. Toggle with `Ctrl+a Ctrl+t` if you need
+to test with mouse mode off.
 
-This means:
-- **Code-Server:** Use native browser selection (drag with mouse, copy via context menu or Ctrl+C)
-- **SSH:** Full tmux mouse support enabled (pane resize, window switching, copy mode with mouse)
+For Ghostty's native text selection (outside of tmux copy mode), hold **Shift**
+while dragging.
 
-To enable mouse support in Code-Server (not recommended, breaks native selection):
-```bash
-Ctrl+a Ctrl+t
-```
-Or permanently in `tmux.conf`:
-```bash
-set -g mouse on
-```
-
-### Manual Testing
-
-Run the clipboard test script:
-```bash
-bash ~/.tmux/scripts/test-clipboard.sh
-```
-
-**For Code-Server:**
-1. Use native mouse selection (drag to select)
-2. Copy with context menu or Ctrl+C
-3. Paste with Ctrl+V
-
-**For SSH or with mouse enabled:**
+**Using tmux copy mode:**
 1. Enter copy mode: `Ctrl+a [`
 2. Select text: `v` (vi) or mouse drag
 3. Yank: `y`
@@ -69,58 +78,36 @@ bash ~/.tmux/scripts/test-clipboard.sh
 ### Troubleshooting
 
 If clipboard doesn't work:
-1. Run the test script to verify configuration
-2. For SSH access, install `xsel` or `xclip` for native X11 clipboard support: `sudo apt install xsel`
-3. Check VS Code settings: `"terminal.integrated.allowClipboardOperations": true` (default: true)
-4. If you see "0/0" selection indicator in Code-Server, mouse support may be enabled — disable it with `Ctrl+a Ctrl+t`
-
-**How it works:**
-- **macOS:** Uses `pbcopy` if available
-- **WSL:** Uses `clip.exe` automatically (Windows clipboard integration)
-- **Linux X11:** Uses `xsel`/`xclip` if installed (preferred)
-- **Linux Wayland:** Uses `wl-copy` if installed
-- **Code-Server:** Falls back to OSC 52 (works in browser terminals)
+1. Confirm `shell-integration-features = ssh-env,ssh-terminfo` is set in `~/.config/ghostty/config`
+2. Confirm `set -g set-clipboard on` and `set -g allow-passthrough on` are active (`tmux show -g`)
+3. Terminal multiplexers nested over multiple SSH hops can block OSC 52 passthrough — check each hop supports it
 
 ## Requirements
 
 - tmux >= 3.2 (tested with 3.5a)
 - bash
 - git
+- Local client machine: [Ghostty](https://ghostty.org) with SSH shell-integration enabled (see [Ghostty (client setup)](#ghostty-client-setup))
 
 ## Installation
 
 ```bash
 git clone --recurse-submodules <repo-url>
 cd vybemux
-./install.sh --mode=<mode>
+./install.sh
 ```
 
 Replace `<repo-url>` with the URL of this repository, for example:
 
-- SSH: `ssh://git@github.com/username/vybemux.git`
-- HTTPS: `https://github.com/username/vybemux.git`
-
-### Installation Modes
-
-Choose one of the following modes:
-
-| Mode | Auto-Attach | VS Code Profile | Description |
-|------|-------------|-----------------|-------------|
-| `auto` | ✅ | ❌ | VS Code terminals automatically start tmux (default behavior) |
-| `profile` | ❌ | ✅ vybemux | tmux can be selected from VS Code terminal menu |
-| `manual` | ❌ | ❌ | Only aliases, no auto-activation |
-
-**Examples:**
+- SSH: `ssh://git@codeberg.org/kinglike1337/vybemux.git`
+- HTTPS: `https://codeberg.org/kinglike1337/vybemux.git`
 
 ```bash
-./install.sh --mode=auto      # Auto-attach active (default behavior)
-./install.sh --mode=profile    # VS Code vybemux profile
-./install.sh --mode=manual     # Aliases only, manual tmux start
 ./install.sh --status          # Shows current installation status
 ./install.sh --help            # Shows all options
 ```
 
-After installation, add this to `~/.bashrc` (after the interactive shell check, **before** tools like SDKMAN that require end-of-file placement):
+After installation, add this to `~/.bashrc` (after the interactive shell check):
 
 ```bash
 [ -f ~/.tmux.bash ] && . ~/.tmux.bash
@@ -128,7 +115,7 @@ After installation, add this to `~/.bashrc` (after the interactive shell check, 
 
 ### Check Installation Status
 
-To check the current installation status and mode:
+To check the current installation status:
 
 ```bash
 cd vybemux
@@ -137,9 +124,7 @@ cd vybemux
 
 This will show:
 - Installation status (files, plugins)
-- Configuration mode (auto/profile/manual)
-- Auto-Attach status
-- VS Code vybemux profile status
+- Source line status in `~/.bashrc`
 - tmux version and plugin status
 
 **Example output:**
@@ -151,13 +136,7 @@ vybemux Installation Status
 [SUCCESS] tmux config found: ~/.tmux.conf
 [SUCCESS] tmux.bash found: ~/.tmux.bash
 [SUCCESS] Plugins directory found: ~/.tmux/plugins
-
---- Configuration Mode ---
-[WARNING] Auto-Attach: Disabled
-[SUCCESS] VS Code vybemux profile: Installed
-
---- Inferred Mode ---
-[INFO] Mode: profile
+[SUCCESS] Source line found in ~/.bashrc
 
 --- tmux Information ---
 [INFO] tmux version: 3.5a
@@ -185,7 +164,6 @@ The uninstall script will:
 - Remove `~/.tmux.bash`
 - Remove `~/.tmux/` directory
 - Remove vybemux source line from `~/.bashrc`
-- Remove `vybemux` profile from VS Code settings.json (if installed with `--mode=profile`)
 - Optionally remove `~/.vybemux-backup/` directory
 - Backup your `.bashrc` before modification
 
@@ -262,32 +240,13 @@ git push
 
 ### Customize AI Tools
 
-Edit the menu entries in `tmux.conf` (6 `display-menu` blocks) and the aliases in `tmux.bash`.
+Edit the two clickable menus (`MouseUp1StatusLeft`/`MouseUp1StatusRight`) and
+the keyboard menus (`Prefix m`/`M`) in `tmux.conf`, plus the aliases in
+`tmux.bash`.
 
-### Disable Auto-Attach
+### Starting tmux
 
-Use `--mode=profile` or `--mode=manual` during installation to disable auto-attach.
-
-Alternatively, you can manually comment out or remove the `exec tmux new-session -A -s ...` line in `tmux.bash`, or adjust the `TERM_PROGRAM` condition.
-
-### VS Code Profile Mode
-
-When installed with `--mode=profile`, a `vybemux` terminal profile is added to VS Code:
-
-1. Click the `+` button in the VS Code terminal panel
-2. Select `vybemux` from the profile dropdown
-3. A new tmux session will be created (or attached) using the workspace name
-
-**Benefits:**
-- Default `bash` profile remains available
-- tmux is only activated when explicitly needed
-- Works seamlessly with existing terminal configurations
-
-**Note:** This modifies `~/.local/share/code-server/User/settings.json` (or `~/.config/Code/User/settings.json` for VS Code Desktop). A backup is created in `~/.vybemux-backup/`.
-
-### Manual Mode
-
-With `--mode=manual`, vybemux installs tmux configuration and aliases without any auto-activation. Use the provided aliases to start tmux:
+vybemux does not start tmux automatically; use the provided aliases:
 
 ```bash
 tn <session-name>    # Create new session

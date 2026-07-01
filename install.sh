@@ -21,8 +21,6 @@ TMUX_CONF="$INSTALL_DIR/.tmux.conf"
 TMUX_BASH="$INSTALL_DIR/.tmux.bash"
 TMUX_SCRIPTS_DIR="$INSTALL_DIR/.tmux/scripts"
 TMUX_PLUGINS_DIR="$INSTALL_DIR/.tmux/plugins"
-VSCODE_SETTINGS="$HOME/.local/share/code-server/User/settings.json"
-VSCODE_SETTINGS_DESKTOP="$HOME/.config/Code/User/settings.json"
 BASHRC="$HOME/.bashrc"
 SOURCE_LINE="[ -f ~/.tmux.bash ] && . ~/.tmux.bash"
 
@@ -42,25 +40,12 @@ echo_warning() {
     echo -e "${YELLOW}[WARNING]${NC} $1"
 }
 
-# Parse mode argument
-MODE=""
+# Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --mode=*|-m=*)
-            MODE="${1#*=}"
-            shift
-            ;;
         --help|-h)
-        echo "Usage: $0 --mode={auto|profile|manual}"
-        echo "       $0 --status"
-        echo ""
-        echo "Modes:"
-        echo "  auto    - Auto-attach active (VS Code terminals start tmux automatically)"
-        echo "  profile - VS Code profile mode (tmux selectable from terminal menu)"
-        echo "  manual  - Aliases only, no auto-activation"
-        echo ""
-        echo "Options:"
-        echo "  --status - Shows current installation status"
+        echo "Usage: $0            Install vybemux"
+        echo "       $0 --status   Show installation status"
         exit 0
         ;;
     --status)
@@ -71,9 +56,7 @@ while [[ $# -gt 0 ]]; do
         echo ""
         
         INSTALLED=false
-        AUTO_ATTACH="unknown"
-        VYBEMUX_PROFILE="unknown"
-        
+
         if [ -f "$TMUX_CONF" ]; then
             echo_success "tmux config found: $TMUX_CONF"
             INSTALLED=true
@@ -103,53 +86,6 @@ while [[ $# -gt 0 ]]; do
             fi
         else
             echo_warning "$HOME/.bashrc not found"
-        fi
-        
-        echo ""
-        echo -e "${BLUE}--- Configuration Mode ---${NC}"
-        
-        if [ -f "$TMUX_BASH" ]; then
-            if grep -q "DISABLED" "$TMUX_BASH"; then
-                AUTO_ATTACH="disabled"
-                echo_warning "Auto-Attach: Disabled"
-            else
-                AUTO_ATTACH="enabled"
-                echo_success "Auto-Attach: Enabled"
-            fi
-        else
-            echo_warning "Auto-Attach: Cannot determine (tmux.bash not found)"
-        fi
-        
-        VSCODE_SETTINGS_FILE=""
-        if [ -f "$VSCODE_SETTINGS" ]; then
-            VSCODE_SETTINGS_FILE="$VSCODE_SETTINGS"
-        elif [ -f "$VSCODE_SETTINGS_DESKTOP" ]; then
-            VSCODE_SETTINGS_FILE="$VSCODE_SETTINGS_DESKTOP"
-        fi
-        
-        if [ -n "$VSCODE_SETTINGS_FILE" ]; then
-            if grep -q '"vybemux"' "$VSCODE_SETTINGS_FILE"; then
-                VYBEMUX_PROFILE="installed"
-                echo_success "VS Code vybemux profile: Installed ($VSCODE_SETTINGS_FILE)"
-            else
-                VYBEMUX_PROFILE="not installed"
-                echo_warning "VS Code vybemux profile: Not found"
-            fi
-        else
-            echo_warning "VS Code settings not found"
-        fi
-        
-        echo ""
-        echo -e "${BLUE}--- Inferred Mode ---${NC}"
-        
-        if [ "$AUTO_ATTACH" = "enabled" ] && [ "$VYBEMUX_PROFILE" != "installed" ]; then
-            echo_info "Mode: auto"
-        elif [ "$AUTO_ATTACH" = "disabled" ] && [ "$VYBEMUX_PROFILE" = "installed" ]; then
-            echo_info "Mode: profile"
-        elif [ "$AUTO_ATTACH" = "disabled" ] && [ "$VYBEMUX_PROFILE" != "installed" ]; then
-            echo_info "Mode: manual"
-        else
-            echo_warning "Mode: Cannot determine (configuration may be mixed)"
         fi
         
         echo ""
@@ -203,26 +139,11 @@ while [[ $# -gt 0 ]]; do
         ;;
         *)
             echo_error "Unknown parameter: $1"
-            echo "Usage: $0 --mode={auto|profile|manual} or $0 --status"
-            echo "See $0 --help for details"
+            echo "Usage: $0  or  $0 --status"
             exit 1
             ;;
     esac
 done
-
-if [ -z "$MODE" ]; then
-    echo_error "No mode specified!"
-    echo ""
-    echo "Usage: $0 --mode={auto|profile|manual} or $0 --status"
-    echo "See $0 --help for details"
-    exit 1
-fi
-
-if [ "$MODE" != "auto" ] && [ "$MODE" != "profile" ] && [ "$MODE" != "manual" ]; then
-    echo_error "Invalid mode: $MODE"
-    echo "Allowed modes: auto, profile, manual"
-    exit 1
-fi
 
 # Check if tmux is installed
 echo_info "Checking tmux installation..."
@@ -285,61 +206,6 @@ mkdir -p "$(dirname "$TMUX_PLUGINS_DIR")"
 ln -s "$REPO_DIR/plugins" "$TMUX_PLUGINS_DIR"
 echo_success "Plugins linked: $TMUX_PLUGINS_DIR -> $REPO_DIR/plugins"
 
-# Mode-specific modifications
-if [ "$MODE" = "profile" ] || [ "$MODE" = "manual" ]; then
-    echo_info "Disabling Auto-Attach in ~/.tmux.bash..."
-    sed -i '/Auto-attach for Code-Server/,/^fi$/s/^/# DISABLED: /' "$TMUX_BASH"
-    echo_success "Auto-Attach disabled (Mode: $MODE)"
-fi
-
-if [ "$MODE" = "profile" ]; then
-    echo_info "Configuring VS Code vybemux profile..."
-    VSCODE_SETTINGS="$HOME/.local/share/code-server/User/settings.json"
-    
-    if [ -f "$VSCODE_SETTINGS" ]; then
-        echo_info "Backing up: $VSCODE_SETTINGS"
-        cp "$VSCODE_SETTINGS" "$BACKUP_DIR/settings.json"
-    fi
-    
-    mkdir -p "$(dirname "$VSCODE_SETTINGS")"
-    if [ ! -f "$VSCODE_SETTINGS" ]; then
-        echo '{}' > "$VSCODE_SETTINGS"
-    fi
-
-    python3 <<EOF
-import json
-import sys
-
-try:
-    with open("$VSCODE_SETTINGS", "r") as f:
-        settings = json.load(f)
-
-    if "terminal.integrated.profiles.linux" not in settings:
-        settings["terminal.integrated.profiles.linux"] = {}
-
-    settings["terminal.integrated.profiles.linux"]["vybemux"] = {
-        "path": "tmux",
-        "args": ["new-session", "-A", "-s", "\${workspaceFolderBasename}"]
-    }
-
-    if "terminal.integrated.defaultProfile.linux" not in settings:
-        settings["terminal.integrated.defaultProfile.linux"] = "bash"
-
-    with open("$VSCODE_SETTINGS", "w") as f:
-        json.dump(settings, f, indent=4)
-        f.write("\n")
-except json.JSONDecodeError as e:
-    print(f"ERROR: Invalid JSON in settings.json: {e}", file=sys.stderr)
-    sys.exit(1)
-except FileNotFoundError:
-    print(f"ERROR: File not found: $VSCODE_SETTINGS", file=sys.stderr)
-    sys.exit(1)
-EOF
-
-    echo_success "VS Code vybemux profile installed"
-    echo "  Open in VS Code: Terminal > Create New Terminal (vybemux)"
-fi
-
 # Check if .bashrc sources tmux.bash
 echo_info "Checking ~/.bashrc..."
 
@@ -349,11 +215,11 @@ echo_info "Checking ~/.bashrc..."
         else
             echo_warning "\$HOME/.bashrc does not source \$HOME/.tmux.bash"
         echo ""
-        echo "Please add this line to ~/.bashrc (after the interactive check, before SDKMAN):"
+        echo "Please add this line to ~/.bashrc (after the interactive shell check):"
         echo ""
         echo -e "${GREEN}$SOURCE_LINE${NC}"
         echo ""
-        echo "Example location: after 'case $- in *i*) ;; esac' and before tools requiring end-of-file placement"
+        echo "Example location: after 'case $- in *i*) ;; esac'"
     fi
     else
         echo_warning "\$HOME/.bashrc not found. Please create it and add:"
@@ -379,19 +245,11 @@ fi
 
 # Done
 echo ""
-echo_success "vybemux installed successfully (Modus: $MODE)!"
+echo_success "vybemux installed successfully!"
 echo ""
 echo "Backup location: $BACKUP_DIR"
 echo ""
-
-if [ "$MODE" = "auto" ]; then
-    echo "Auto-Attach is active - VS Code terminals start tmux automatically"
-elif [ "$MODE" = "profile" ]; then
-    echo "vybemux profile installed - Select 'vybemux' in VS Code terminal menu"
-elif [ "$MODE" = "manual" ]; then
-    echo "Auto-Attach disabled - Start tmux manually with: tmux new-session"
-fi
-
+echo "Start tmux manually with: tmux new-session"
 echo ""
 echo "To apply changes:"
 echo "  1. Start a new shell or run: source ~/.bashrc"

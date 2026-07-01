@@ -36,8 +36,6 @@ TMUX_DIR="$HOME/.tmux"
 BACKUP_DIR="$HOME/.vybemux-backup"
 BASHRC="$HOME/.bashrc"
 SOURCE_LINE="[ -f ~/.tmux.bash ] && . ~/.tmux.bash"
-VSCODE_SETTINGS="$HOME/.local/share/code-server/User/settings.json"
-VSCODE_SETTINGS_DESKTOP="$HOME/.config/Code/User/settings.json"
 
 echo -e "${BLUE}============================================================================${NC}"
 echo -e "${BLUE}vybemux Uninstaller${NC}"
@@ -77,9 +75,6 @@ echo ""
 if [ -f "$TMUX_CONF" ]; then     echo "  - $TMUX_CONF"; fi
 if [ -f "$TMUX_BASH" ]; then echo "  - $TMUX_BASH"; fi
 if [ -d "$TMUX_DIR" ]; then echo "  - $TMUX_DIR (directory)"; fi
-if [ -f "$VSCODE_SETTINGS" ] || [ -f "$VSCODE_SETTINGS_DESKTOP" ]; then
-    echo "  - vybemux profile from VS Code settings.json"
-fi
 echo ""
 
 read -r -p "Do you want to continue? (y/n): " confirm
@@ -141,57 +136,6 @@ if [[ $remove_backups =~ ^[Yy]$ ]]; then
     fi
 else
     echo_info "Backups preserved in: $BACKUP_DIR"
-fi
-
-# Remove vybemux profile from VS Code settings.json
-VSCODE_SETTINGS_FILE=""
-if [ -f "$VSCODE_SETTINGS" ]; then
-    VSCODE_SETTINGS_FILE="$VSCODE_SETTINGS"
-elif [ -f "$VSCODE_SETTINGS_DESKTOP" ]; then
-    VSCODE_SETTINGS_FILE="$VSCODE_SETTINGS_DESKTOP"
-fi
-
-if [ -n "$VSCODE_SETTINGS_FILE" ]; then
-    echo_info "Checking VS Code settings for vybemux profile..."
-    
-    if grep -q '"vybemux"' "$VSCODE_SETTINGS_FILE"; then
-        echo_info "Removing vybemux profile from VS Code settings..."
-        
-        python3 <<EOF
-import json
-import sys
-
-try:
-    with open("$VSCODE_SETTINGS_FILE", "r") as f:
-        settings = json.load(f)
-
-    if "terminal.integrated.profiles.linux" in settings:
-        if "vybemux" in settings["terminal.integrated.profiles.linux"]:
-            del settings["terminal.integrated.profiles.linux"]["vybemux"]
-
-            if len(settings["terminal.integrated.profiles.linux"]) == 0:
-                del settings["terminal.integrated.profiles.linux"]
-
-        with open("$VSCODE_SETTINGS_FILE", "w") as f:
-            json.dump(settings, f, indent=4)
-            f.write("\n")
-
-    print("SUCCESS")
-except json.JSONDecodeError as e:
-    print(f"ERROR: Invalid JSON in settings.json: {e}", file=sys.stderr)
-    sys.exit(1)
-except FileNotFoundError:
-    print(f"ERROR: File not found: $VSCODE_SETTINGS_FILE", file=sys.stderr)
-    sys.exit(1)
-except Exception as e:
-    print(f"ERROR: {e}", file=sys.stderr)
-    sys.exit(1)
-EOF
-        
-        echo_success "Removed vybemux profile from: $VSCODE_SETTINGS_FILE"
-    else
-        echo_info "No vybemux profile found in VS Code settings"
-    fi
 fi
 
 # Check if tmux is running
