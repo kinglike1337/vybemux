@@ -36,6 +36,26 @@ OSC 52 writes natively.
 The Kitty keyboard protocol (`extended-keys always`) is enabled so Claude Code
 running inside tmux can see Shift+Enter as a newline instead of a submit.
 
+### WSL2 + Windows Terminal
+
+The Kitty keyboard protocol chain above is Ghostty-specific. Windows Terminal
+sends Shift+Enter byte-identical to Enter (`\r`), so the distinction is lost
+before tmux ever sees it — no tmux setting can recover it. Bind the keys in
+Windows Terminal's `settings.json` (Settings → Open JSON file) to send a
+newline instead, equivalent to Ctrl+J:
+
+```json
+{ "command": { "action": "sendInput", "input": "\n" }, "keys": "shift+enter" },
+{ "command": { "action": "sendInput", "input": "\n" }, "keys": "alt+enter" }
+```
+
+`alt+enter` overrides Windows Terminal's default `toggleFullscreen`. Claude
+Code's `/terminal-setup` does not help here — it only configures the VS Code
+integrated terminal, not Windows Terminal.
+
+Terminal-independent fallbacks that work in any terminal without setup:
+press **Ctrl+J**, or type `\` then Enter.
+
 Ghostty click handling can need 2-3 presses to register on the status bar or
 in a pane; vybemux works around this by binding menu clicks and pane
 selection to mouse-up instead of mouse-down. If you still see stray clicks,

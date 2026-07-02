@@ -110,6 +110,12 @@ csi-u`, `terminal-features xterm*:extkeys`) forwards extended key events
 through tmux, which is what allows Shift+Enter to work as a newline (not
 submit) in Claude Code running inside tmux.
 
+**WSL2 + Windows Terminal:** the chain above is Ghostty-specific. Windows
+Terminal sends Shift+Enter identical to Enter, so add `sendInput` actions
+binding `shift+enter` (and optionally `alt+enter`) to `"\n"` in Windows
+Terminal's `settings.json`. `/terminal-setup` only configures the VS Code
+terminal. See the "WSL2 + Windows Terminal" section in `README.md`.
+
 ## Key Files
 
 | File | Purpose |
