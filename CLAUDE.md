@@ -84,6 +84,7 @@ The status bar uses clickable menus and displays:
 - Session name (left, clickable → session menu)
 - Windows list (clickable to switch)
 - `[+]` button (right, clickable → quick actions)
+- `[+]` menu and `Prefix+m` include a "Cheat-Sheet" entry (key `?`) that opens a `display-popup` reference of all shortcuts (`scripts/cheatsheet.sh`)
 - Shortened path, git branch, hostname, date
 
 ## Ghostty Setup (Client Side)

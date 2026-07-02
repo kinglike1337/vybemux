@@ -28,6 +28,10 @@ alias tw-opencode-new='tmux new-window -n opencode "opencode"'
 # Open a plain shell in a new tmux window
 alias tw-shell='tmux new-window -n shell'
 
+# Singleton-TUI-Tabs (Start-or-Switch — wie Prefix+g / Prefix+F, ohne Duplikate)
+alias tw-git='~/.tmux/scripts/tui-tab.sh git'
+alias tw-files='~/.tmux/scripts/tui-tab.sh files'
+
 # ---------------------------------------------------------------------------
 # Dev Session Setup
 # ---------------------------------------------------------------------------

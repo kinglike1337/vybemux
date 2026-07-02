@@ -196,9 +196,18 @@ backup_if_exists "$TMUX_PLUGINS_DIR"
 echo_info "Installing configuration files..."
 cp "$REPO_DIR/tmux.conf" "$TMUX_CONF"
 cp "$REPO_DIR/tmux.bash" "$TMUX_BASH"
+# Persönliche Override-Datei einmalig anlegen (nie überschreiben).
+if [ ! -f "$HOME/.tmux.conf.local" ]; then
+    cp "$REPO_DIR/tmux.conf.local.example" "$HOME/.tmux.conf.local"
+    echo_info "Override-Datei angelegt: ~/.tmux.conf.local (anpassbar)"
+fi
 mkdir -p "$TMUX_SCRIPTS_DIR"
 cp "$REPO_DIR/scripts/shorten-path.sh" "$TMUX_SCRIPTS_DIR/shorten-path.sh"
 chmod +x "$TMUX_SCRIPTS_DIR/shorten-path.sh"
+cp "$REPO_DIR/scripts/cheatsheet.sh" "$TMUX_SCRIPTS_DIR/cheatsheet.sh"
+chmod +x "$TMUX_SCRIPTS_DIR/cheatsheet.sh"
+cp "$REPO_DIR/scripts/tui-tab.sh" "$TMUX_SCRIPTS_DIR/tui-tab.sh"
+chmod +x "$TMUX_SCRIPTS_DIR/tui-tab.sh"
 
 # Link or copy plugins
 echo_info "Installing plugins..."

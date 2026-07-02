@@ -238,6 +238,7 @@ git push
 | Ctrl+Shift+Left/Right | Move windows               |
 | Click [+] button     | Quick actions (Claude, OpenCode) |
 | Click session name   | Session menu                  |
+| [+] or Prefix+m, then ? | Show keyboard shortcut reference (cheat-sheet popup) |
 
 ### Aliases (after sourcing ~/.tmux.bash)
 
