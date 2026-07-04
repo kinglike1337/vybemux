@@ -43,5 +43,5 @@ printf "  ${T}%-23s${R} ${S}|${R} ${Y}%-14s${R} ${T}%s${R}\n" "y   kopieren -> A
 printf "  ${T}%-23s${R} ${S}|${R} ${Y}%-14s${R} ${T}%s${R}\n" "Strg+a ]  einfuegen"      "Strg+a S"        "Sync-Panes"
 printf "  ${T}%-23s${R} ${S}|${R} ${Y}%-14s${R} ${T}%s${R}\n" "Esc Copy-Mode verlassen"  "Shift+Ziehen"    "Terminal-Auswahl"
 
-printf '\n%b\n' "${A}NEU:${R} ${Y}Strg+a Tab${R} ${T}letzte Session${R}  ${Y}Strg+a g${R} ${T}Git (lazygit)${R}  ${Y}Strg+a F${R} ${T}Files (yazi)${R}"
+printf '\n%b\n' "${A}NEU:${R} ${Y}Strg+a Tab${R} ${T}naechste Session${R}  ${Y}Shift+Tab${R} ${T}vorige${R}  ${Y}Strg+a g${R} ${T}Git (lazygit)${R}  ${Y}Strg+a F${R} ${T}Files (yazi)${R}"
 printf '\n%b\n' "${M}q = schliessen     Pfeil hoch/runter, BildAuf/BildAb = blaettern${R}"

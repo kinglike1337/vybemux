@@ -210,6 +210,8 @@ cp "$REPO_DIR/scripts/cheatsheet.sh" "$TMUX_SCRIPTS_DIR/cheatsheet.sh"
 chmod +x "$TMUX_SCRIPTS_DIR/cheatsheet.sh"
 cp "$REPO_DIR/scripts/tui-tab.sh" "$TMUX_SCRIPTS_DIR/tui-tab.sh"
 chmod +x "$TMUX_SCRIPTS_DIR/tui-tab.sh"
+cp "$REPO_DIR/scripts/sessions.sh" "$TMUX_SCRIPTS_DIR/sessions.sh"
+chmod +x "$TMUX_SCRIPTS_DIR/sessions.sh"
 
 # Link or copy plugins
 echo_info "Installing plugins..."

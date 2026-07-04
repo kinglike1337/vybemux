@@ -60,7 +60,8 @@ vybemux/
 ├── uninstall.sh       # Complete uninstaller
 ├── update.sh          # Submodule update script
 ├── scripts/           # Helper scripts for tmux status bar
-│   └── shorten-path.sh
+│   ├── shorten-path.sh
+│   └── sessions.sh        # all-sessions list for status-left (current highlighted)
 └── plugins/           # Git submodules (not dynamically fetched)
     ├── tpm/           # tmux Plugin Manager (orchestrates other plugins)
     ├── tmux-resurrect/    # Session save/restore
@@ -81,7 +82,7 @@ tmux runs remotely over SSH, so vybemux relies on OSC 52 rather than X11 clipboa
 ### Status Bar Components
 
 The status bar uses clickable menus and displays:
-- Session name (left, clickable → session menu)
+- All sessions (left; current shown as an accent badge, others muted; clickable → session menu)
 - Windows list (clickable to switch)
 - `[+]` button (right, clickable → quick actions)
 - `[+]` menu and `Prefix+m` include a "Cheat-Sheet" entry (key `?`) that opens a `display-popup` reference of all shortcuts (`scripts/cheatsheet.sh`)
@@ -125,6 +126,7 @@ terminal. See the "WSL2 + Windows Terminal" section in `README.md`.
 | `tmux.bash` | Aliases, tmux-dev/project functions |
 | `install.sh` | Validation, backup, file copying |
 | `scripts/shorten-path.sh` | Path shortening for status bar (e.g., `~/p/vybemux`) |
+| `scripts/sessions.sh` | All-sessions list for status-left (current highlighted) |
 
 ## Configuration Patterns
 
