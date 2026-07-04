@@ -1,0 +1,20 @@
+# ~/.tmux.conf.local — persönliche vybemux-Anpassungen.
+#
+# Diese Datei wird von ~/.tmux.conf ganz am Anfang gesourced (source-file -q).
+# Der Installer legt sie beim ersten `./install.sh` an und überschreibt sie bei
+# Folge-Installationen NICHT — persönliche Anpassungen bleiben erhalten.
+#
+# Hier gehören alle Werte, die die ausgelieferte tmux.conf als sauberes
+# Template frei halten soll.
+
+# Singleton-TUI-Befehle für die Start-or-Switch Tabs (Prefix g / Prefix F).
+# Nur der reine Befehlsname (ohne Argumente). Standard: lazygit / yazi.
+# Alternativen z.B.: gitui, tig  |  ranger, lf, nnn
+set -g @git_tui   "lazygit"
+set -g @file_tui  "yazi"
+
+# Weitere persönliche Optionen, Aliase oder Bindings hier ergänzen.
+# Hinweis: Optionen, die ~/.tmux.conf selbst setzt (z.B. @resurrect-processes),
+# lassen sich hier NICHT überschreiben — diese Datei wird VOR der tmux.conf
+# gesourced, und bei tmux gewinnt die letzte Setzung. Sicher überschreibbar
+# sind nur Werte, die tmux.conf nicht selbst setzt (wie @git_tui / @file_tui).
