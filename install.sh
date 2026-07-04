@@ -197,7 +197,9 @@ echo_info "Installing configuration files..."
 cp "$REPO_DIR/tmux.conf" "$TMUX_CONF"
 cp "$REPO_DIR/tmux.bash" "$TMUX_BASH"
 # Persönliche Override-Datei einmalig anlegen (nie überschreiben).
-if [ ! -f "$HOME/.tmux.conf.local" ]; then
+# ~/.tmux.conf.local wird optional gesourct (source-file -q); eine fehlende
+# Beispieldatei darf die Installation daher nicht abbrechen.
+if [ ! -f "$HOME/.tmux.conf.local" ] && [ -f "$REPO_DIR/tmux.conf.local.example" ]; then
     cp "$REPO_DIR/tmux.conf.local.example" "$HOME/.tmux.conf.local"
     echo_info "Override-Datei angelegt: ~/.tmux.conf.local (anpassbar)"
 fi
@@ -237,8 +239,11 @@ echo_info "Checking ~/.bashrc..."
 fi
 
 # Syntax check tmux config
+# Use a private socket (-L) so we never touch the user's running server:
+# a plain `start-server \; kill-server` on the default socket would kill an
+# active tmux session during install.
 echo_info "Validating tmux configuration..."
-if tmux -f "$TMUX_CONF" start-server \; kill-server 2>/dev/null; then
+if tmux -L vybemux-validate -f "$TMUX_CONF" start-server \; kill-server 2>/dev/null; then
     echo_success "tmux configuration is valid"
 else
     echo_error "tmux configuration has syntax errors"
