@@ -2,8 +2,8 @@
 # =============================================================================
 # validate-tmux-conf.sh — tmux.conf syntax validation for pre-commit and CI.
 #
-# `tmux -f tmux.conf start-server \; kill-server` (the method previously
-# documented in AGENTS.md) does NOT reliably detect syntax errors: even a
+# `tmux -f tmux.conf start-server \; kill-server` (a commonly suggested
+# method) does NOT reliably detect syntax errors: even a
 # completely invented command name returns exit status 0 because start-server
 # immediately exits without an attached session (exit-empty), before an error
 # can become visible. Instead, the reliable approach starts an empty isolated
