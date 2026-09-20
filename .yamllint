@@ -1,0 +1,38 @@
+---
+# yamllint configuration for vybemux
+
+extends: default
+
+rules:
+  indentation:
+    spaces: 2
+    indent-sequences: true
+
+  line-length:
+    max: 200
+    level: warning
+
+  comments: disable
+
+  document-start: disable
+  document-end: disable
+
+  # Gitea Actions workflow keys like `on:` parse as booleans in YAML 1.1;
+  # check-keys: false stops yamllint from flagging the key itself.
+  truthy:
+    allowed-values: ['true', 'false']
+    check-keys: false
+
+  braces:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+  brackets:
+    min-spaces-inside: 0
+    max-spaces-inside: 0
+
+  empty-lines:
+    max: 2
+
+  comments-indentation: disable
+
+  trailing-spaces: {}

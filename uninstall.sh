@@ -53,7 +53,7 @@ if [ "$FILES_EXIST" = false ]; then
     echo ""
     read -r -p "Do you want to remove backups as well? (y/n): " remove_backups
     echo ""
-    
+
     if [[ $remove_backups =~ ^[Yy]$ ]]; then
         if [ -d "$BACKUP_DIR" ]; then
             echo_info "Removing backup directory: $BACKUP_DIR"
@@ -63,7 +63,7 @@ if [ "$FILES_EXIST" = false ]; then
             echo_warning "No backup directory found"
         fi
     fi
-    
+
     echo ""
     echo_success "Nothing to uninstall"
     exit 0
@@ -107,13 +107,13 @@ fi
 if [ -f "$BASHRC" ]; then
     if grep -q "$SOURCE_LINE" "$BASHRC"; then
         echo_info "Removing vybemux source line from ~/.bashrc..."
-        
+
         # Create backup of .bashrc
         cp "$BASHRC" "${BASHRC}.vybemux-uninstall-backup"
-        
+
         # Remove the source line
         sed -i '/\[ -f ~\/\.tmux\.bash \] && \. ~\/\.tmux\.bash/d' "$BASHRC"
-        
+
         echo_success "Removed source line from ~/.bashrc"
         echo_warning "Backup saved to: ${BASHRC}.vybemux-uninstall-backup"
     else
@@ -138,8 +138,20 @@ else
     echo_info "Backups preserved in: $BACKUP_DIR"
 fi
 
-# Check if tmux is running
-if pgrep -x tmux > /dev/null; then
+# Check if tmux is running. tmux sets its process title to "tmux: server" /
+# "tmux: client" (not plain "tmux"), so match by substring rather than -x.
+# pgrep may also be missing in minimal environments (e.g. CI images without
+# procps); fall back to ps, and skip the check entirely if neither is
+# available rather than failing the uninstall.
+tmux_running=""
+if command -v pgrep >/dev/null 2>&1; then
+    tmux_running=$(pgrep tmux 2>/dev/null || true)
+elif command -v ps >/dev/null 2>&1; then
+    # shellcheck disable=SC2009 # this branch only runs when pgrep is absent
+    tmux_running=$(ps -eo comm 2>/dev/null | grep tmux || true)
+fi
+
+if [ -n "$tmux_running" ]; then
     echo ""
     echo_warning "tmux is still running"
     echo_info "Please restart your shell or run: tmux kill-server"

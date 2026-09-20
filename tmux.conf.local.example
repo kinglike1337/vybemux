@@ -1,20 +1,19 @@
-# ~/.tmux.conf.local — persönliche vybemux-Anpassungen.
+# ~/.tmux.conf.local — personal vybemux customizations.
 #
-# Diese Datei wird von ~/.tmux.conf ganz am Anfang gesourced (source-file -q).
-# Der Installer legt sie beim ersten `./install.sh` an und überschreibt sie bei
-# Folge-Installationen NICHT — persönliche Anpassungen bleiben erhalten.
+# ~/.tmux.conf sources this file at the very beginning (source-file -q).
+# The installer creates it on the first `./install.sh` run and does NOT
+# overwrite it on later installations, so personal customizations are preserved.
 #
-# Hier gehören alle Werte, die die ausgelieferte tmux.conf als sauberes
-# Template frei halten soll.
+# Put all values here that should stay out of the distributed tmux.conf template.
 
-# Singleton-TUI-Befehle für die Start-or-Switch Tabs (Prefix g / Prefix F).
-# Nur der reine Befehlsname (ohne Argumente). Standard: lazygit / yazi.
-# Alternativen z.B.: gitui, tig  |  ranger, lf, nnn
+# Singleton TUI commands for the start-or-switch tabs (Prefix g / Prefix F).
+# Use only the command name without arguments. Defaults: lazygit / yazi.
+# Alternatives, for example: gitui, tig  |  ranger, lf, nnn
 set -g @git_tui   "lazygit"
 set -g @file_tui  "yazi"
 
-# Weitere persönliche Optionen, Aliase oder Bindings hier ergänzen.
-# Hinweis: Optionen, die ~/.tmux.conf selbst setzt (z.B. @resurrect-processes),
-# lassen sich hier NICHT überschreiben — diese Datei wird VOR der tmux.conf
-# gesourced, und bei tmux gewinnt die letzte Setzung. Sicher überschreibbar
-# sind nur Werte, die tmux.conf nicht selbst setzt (wie @git_tui / @file_tui).
+# Add further personal options, aliases, or bindings here.
+# Note: options set by ~/.tmux.conf itself (for example @resurrect-processes)
+# CANNOT be overridden here — this file is sourced BEFORE tmux.conf, and the
+# last assignment wins in tmux. Only values not set by tmux.conf can be safely
+# overridden here (such as @git_tui / @file_tui).

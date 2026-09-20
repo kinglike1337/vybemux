@@ -25,10 +25,18 @@ alias tw-claude-new='tmux new-window -n claude "claude"'
 alias tw-opencode='tmux new-window -n opencode "opencode --continue"'
 alias tw-opencode-new='tmux new-window -n opencode "opencode"'
 
+# Codex windows
+alias tw-codex='tmux new-window -n codex "codex resume --last"'
+alias tw-codex-new='tmux new-window -n codex "codex"'
+
+# Pi windows
+alias tw-pi='tmux new-window -n pi "pi --continue"'
+alias tw-pi-new='tmux new-window -n pi "pi"'
+
 # Open a plain shell in a new tmux window
 alias tw-shell='tmux new-window -n shell'
 
-# Singleton-TUI-Tabs (Start-or-Switch — wie Prefix+g / Prefix+F, ohne Duplikate)
+# Singleton TUI tabs (Start or switch — like Prefix+g / Prefix+F, without duplicates)
 alias tw-git='~/.tmux/scripts/tui-tab.sh git'
 alias tw-files='~/.tmux/scripts/tui-tab.sh files'
 
@@ -36,7 +44,9 @@ alias tw-files='~/.tmux/scripts/tui-tab.sh files'
 # Dev Session Setup
 # ---------------------------------------------------------------------------
 
-# Create a full dev session with shell + claude + opencode windows
+# Create a full dev session with a shell window plus one window per
+# installed AI coding tool (claude/opencode/codex/pi) — tools not on PATH
+# get no window instead of an empty/broken one.
 # Usage: tmux-dev [session-name] [project-dir]
 tmux-dev() {
     local session="${1:-$(basename "$PWD")}"
@@ -49,8 +59,12 @@ tmux-dev() {
     fi
 
     tmux new-session -d -s "$session" -n shell -c "$project_dir"
-    tmux new-window -t "$session" -n claude -c "$project_dir"
-    tmux new-window -t "$session" -n opencode -c "$project_dir"
+    local tool
+    for tool in claude opencode codex pi; do
+        if command -v "$tool" >/dev/null 2>&1; then
+            tmux new-window -t "$session" -n "$tool" -c "$project_dir"
+        fi
+    done
     tmux select-window -t "$session":1
     tmux attach -t "$session"
 }

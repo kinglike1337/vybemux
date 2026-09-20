@@ -1,0 +1,37 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "enabledManagers": ["git-submodules", "github-actions", "pre-commit"],
+  "git-submodules": {
+    "enabled": true
+  },
+  "pre-commit": {
+    "enabled": true
+  },
+  "timezone": "Europe/Berlin",
+  "schedule": ["before 6am on monday"],
+  "dependencyDashboard": true,
+  "labels": ["dependencies"],
+  "packageRules": [
+    {
+      "description": "Update the four tmux plugin submodules (branch-head tracking) in a single grouped PR. Deliberately do not pin tags as for test/bats-core: these upstream projects rarely create tags (for example, tmux-continuum has had no new tag since 2015 despite subsequent commits), so tag tracking would freeze the dependencies at years-old revisions instead of surfacing updates. test/bats-core is intentionally excluded: its .gitmodules branch=<tag> setting pins it to release tags from an actively maintained upstream tagging scheme, and it runs separately without grouping.",
+      "matchManagers": ["git-submodules"],
+      "matchDepNames": [
+        "plugins/tpm",
+        "plugins/tmux-resurrect",
+        "plugins/tmux-continuum",
+        "plugins/tmux-yank"
+      ],
+      "groupName": "tmux plugin submodules"
+    },
+    {
+      "description": "Pin actions/checkout to a commit digest instead of a mutable tag (supply-chain hardening; matches the pattern already used in ci-images). Renovate keeps the digest current and appends the resolved tag as a comment, e.g. actions/checkout@<sha> # v7.0.1.",
+      "matchManagers": ["github-actions"],
+      "matchPackageNames": ["actions/checkout"],
+      "groupName": "actions checkout",
+      "pinDigests": true
+    }
+  ],
+  "commitMessagePrefix": "chore(deps)",
+  "commitMessageTopic": "{{depName}}"
+}

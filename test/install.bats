@@ -1,0 +1,122 @@
+#!/usr/bin/env bats
+# =============================================================================
+# Tests for install.sh release-safety behavior
+# =============================================================================
+
+bats_require_minimum_version 1.5.0
+
+PROJECT_ROOT="$BATS_TEST_DIRNAME/.."
+
+setup() {
+    FIXTURE_REPO="$BATS_TEST_TMPDIR/repo"
+    FIXTURE_HOME="$BATS_TEST_TMPDIR/home"
+    STUB_BIN="$BATS_TEST_TMPDIR/bin"
+    mkdir -p "$FIXTURE_REPO/scripts" "$FIXTURE_HOME" "$STUB_BIN"
+
+    cp "$PROJECT_ROOT/install.sh" "$PROJECT_ROOT/tmux.conf" \
+        "$PROJECT_ROOT/tmux.bash" "$PROJECT_ROOT/tmux.conf.local.example" \
+        "$PROJECT_ROOT/VERSION" "$FIXTURE_REPO/"
+    cp "$PROJECT_ROOT"/scripts/*.sh "$FIXTURE_REPO/scripts/"
+
+    mkdir -p \
+        "$FIXTURE_REPO/plugins/tpm" \
+        "$FIXTURE_REPO/plugins/tmux-resurrect/scripts" \
+        "$FIXTURE_REPO/plugins/tmux-continuum" \
+        "$FIXTURE_REPO/plugins/tmux-yank"
+    touch \
+        "$FIXTURE_REPO/plugins/tpm/tpm" \
+        "$FIXTURE_REPO/plugins/tmux-resurrect/scripts/save.sh" \
+        "$FIXTURE_REPO/plugins/tmux-continuum/continuum.tmux" \
+        "$FIXTURE_REPO/plugins/tmux-yank/yank.tmux"
+
+    cat >"$STUB_BIN/tmux" <<'EOF'
+#!/bin/bash
+if [[ "${1:-}" == "-V" ]]; then
+    printf 'tmux 3.6\n'
+    exit 0
+fi
+for argument in "$@"; do
+    if [[ "$argument" == "source-file" ]]; then
+        exit "${TMUX_SOURCE_STATUS:-0}"
+    fi
+done
+exit 0
+EOF
+    cat >"$STUB_BIN/date" <<'EOF'
+#!/bin/bash
+printf '2026-09-04_120000\n'
+EOF
+    chmod +x "$STUB_BIN/tmux" "$STUB_BIN/date"
+    export PATH="$STUB_BIN:/usr/bin:/bin"
+    export XDG_DATA_HOME="$BATS_TEST_TMPDIR/xdg"
+}
+
+@test "installer rejects a checkout whose plugin directories are empty" {
+    rm "$FIXTURE_REPO/plugins/tpm/tpm"
+
+    run env HOME="$FIXTURE_HOME" bash "$FIXTURE_REPO/install.sh"
+
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Plugin content missing"* ]]
+}
+
+@test "same-second installations preserve the original backup" {
+    printf 'original user configuration\n' >"$FIXTURE_HOME/.tmux.conf"
+
+    run env HOME="$FIXTURE_HOME" bash "$FIXTURE_REPO/install.sh"
+    [ "$status" -eq 0 ]
+    run env HOME="$FIXTURE_HOME" bash "$FIXTURE_REPO/install.sh"
+    [ "$status" -eq 0 ]
+
+    run find "$FIXTURE_HOME/.vybemux-backup" -mindepth 1 -maxdepth 1 -type d
+    [ "$status" -eq 0 ]
+    [ "${#lines[@]}" -eq 2 ]
+    run grep -Rlx 'original user configuration' "$FIXTURE_HOME/.vybemux-backup"
+    [ "$status" -eq 0 ]
+    [ "${#lines[@]}" -eq 1 ]
+}
+
+@test "installer fails when source-file reports an invalid tmux config" {
+    run env HOME="$FIXTURE_HOME" TMUX_SOURCE_STATUS=1 \
+        bash "$FIXTURE_REPO/install.sh"
+
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"tmux.conf contains syntax errors"* ]]
+}
+
+@test "installer restricts existing resurrect data permissions" {
+    local resurrect_dir="$FIXTURE_HOME/.local/share/tmux/resurrect"
+    mkdir -p "$resurrect_dir"
+    printf 'saved pane data\n' >"$resurrect_dir/pane_contents.tar.gz"
+    chmod 755 "$resurrect_dir"
+    chmod 644 "$resurrect_dir/pane_contents.tar.gz"
+
+    run env -u XDG_DATA_HOME HOME="$FIXTURE_HOME" \
+        bash "$FIXTURE_REPO/install.sh"
+
+    [ "$status" -eq 0 ]
+    [ "$(stat -c %a "$resurrect_dir")" = "700" ]
+    [ "$(stat -c %a "$resurrect_dir/pane_contents.tar.gz")" = "600" ]
+    [ -x "$FIXTURE_HOME/.tmux/scripts/harden-resurrect-permissions.sh" ]
+    [ ! -e "$FIXTURE_HOME/.tmux/resurrect" ]
+}
+
+@test "installer also restricts inactive legacy and XDG resurrect stores" {
+    local legacy_dir="$FIXTURE_HOME/.tmux/resurrect"
+    local xdg_dir="$FIXTURE_HOME/.local/share/tmux/resurrect"
+    mkdir -p "$legacy_dir" "$xdg_dir"
+    printf 'legacy\n' >"$legacy_dir/tmux_resurrect_legacy.txt"
+    printf 'xdg\n' >"$xdg_dir/tmux_resurrect_xdg.txt"
+    chmod 755 "$legacy_dir" "$xdg_dir"
+    chmod 644 "$legacy_dir/tmux_resurrect_legacy.txt" \
+        "$xdg_dir/tmux_resurrect_xdg.txt"
+
+    run env -u XDG_DATA_HOME HOME="$FIXTURE_HOME" \
+        bash "$FIXTURE_REPO/install.sh"
+
+    [ "$status" -eq 0 ]
+    [ "$(stat -c %a "$legacy_dir")" = "700" ]
+    [ "$(stat -c %a "$xdg_dir")" = "700" ]
+    [ "$(stat -c %a "$legacy_dir/tmux_resurrect_legacy.txt")" = "600" ]
+    [ "$(stat -c %a "$xdg_dir/tmux_resurrect_xdg.txt")" = "600" ]
+}

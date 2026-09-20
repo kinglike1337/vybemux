@@ -1,0 +1,65 @@
+# Pre-commit hooks for vybemux
+# See https://pre-commit.com for more information
+
+repos:
+  # Shell script linting
+  - repo: local
+    hooks:
+      - id: shellcheck
+        name: shellcheck
+        entry: shellcheck --shell=bash
+        language: system
+        files: \.(sh|bash)$
+
+  # tmux config syntax validation
+  # scripts/validate-tmux-conf.sh: `tmux -f conf start-server \; kill-server`
+  # exits 0 even for invalid config (start-server has no attached session to
+  # surface errors to). source-file against a bare running server does.
+  - repo: local
+    hooks:
+      - id: tmux-conf
+        name: tmux.conf syntax check
+        entry: scripts/validate-tmux-conf.sh tmux.conf
+        language: system
+        files: ^tmux\.conf$
+        pass_filenames: false
+
+  # Markdown linting
+  - repo: local
+    hooks:
+      - id: mdl
+        name: mdl
+        entry: mdl
+        language: system
+        files: \.md$
+        # Superpowers workflow artifacts (specs/plans) contain embedded
+        # source code (hard tabs) and long command lines -> do not lint as part of the project.
+        exclude: ^docs/superpowers/
+        args: [--style, .mdlrc.rb]
+
+  # YAML linting
+  - repo: local
+    hooks:
+      - id: yamllint
+        name: yamllint
+        entry: yamllint
+        language: system
+        files: \.(yml|yaml)$
+        args: [-c, .yamllint]
+
+  # EditorConfig basics (auto-fix)
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # frozen: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^docs/superpowers/
+      - id: end-of-file-fixer
+        exclude: ^docs/superpowers/
+      - id: mixed-line-ending
+        args: [--fix=lf]
+        exclude: ^docs/superpowers/
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: check-executables-have-shebangs
+      - id: detect-private-key

@@ -10,3 +10,7 @@
 [submodule "plugins/tmux-yank"]
 	path = plugins/tmux-yank
 	url = https://github.com/tmux-plugins/tmux-yank
+[submodule "test/bats-core"]
+	path = test/bats-core
+	url = https://github.com/bats-core/bats-core.git
+	branch = v1.14.0

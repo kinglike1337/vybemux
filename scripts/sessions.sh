@@ -1,25 +1,25 @@
 #!/bin/bash
 # =============================================================================
-# sessions.sh — Session-Liste für die Statusleiste (status-left) von vybemux.
-# Gibt alle tmux-Sessions aus; die aktuelle Session wird als blaues Badge
-# (Tokyo-Night-Akzent #7aa2f7) hervorgehoben, die anderen gemutet (#565f89).
-# Die tmux-Style-Codes (#[...]) werden im status-left direkt gerendert.
+# sessions.sh — Session list for vybemux's status bar (status-left).
+# Prints all tmux sessions; the current session is highlighted as a blue badge
+# (Tokyo Night accent #7aa2f7), while the others are muted (#565f89).
+# The tmux style codes (#[...]) are rendered directly in status-left.
 #
-# Aufruf aus tmux.conf:
+# Invoked from tmux.conf:
 #   status-left "#(bash ~/.tmux/scripts/sessions.sh '#S')"
-# tmux expandiert #S zum Namen der aktuellen Session, bevor das Skript läuft.
+# tmux expands #S to the name of the current session before the script runs.
 # =============================================================================
 set -euo pipefail
 
 cur="${1:-}"
 
-# Alle Sessions (eine pro Zeile). Schlägt list-sessions fehl (kein Server),
-# bleibt die Ausgabe leer -> status-left ohne Liste statt Fehlermeldung.
+# All sessions (one per line). If list-sessions fails (no server),
+# the output stays empty -> status-left without a list instead of an error.
 sessions="$(tmux list-sessions -F '#{session_name}' 2>/dev/null || true)"
 
-# Tokyo-Night-Farben als tmux-Style-Codes.
-BADGE='#[fg=#1a1b26,bg=#7aa2f7,bold]'   # aktuelle Session: Akzent-Badge
-MUTED='#[fg=#565f89,bg=#1a1b26]'         # andere Sessions: gemutet
+# Tokyo Night colors as tmux style codes.
+BADGE='#[fg=#1a1b26,bg=#7aa2f7,bold]'   # current session: accent badge
+MUTED='#[fg=#565f89,bg=#1a1b26]'         # other sessions: muted
 
 while IFS= read -r name; do
     [ -z "$name" ] && continue
