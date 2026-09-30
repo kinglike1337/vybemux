@@ -332,3 +332,26 @@ STUB
 
     [[ "$output" == *"Source line NOT found"* ]]
 }
+
+@test "a broken ~/.tmux.conf.local only warns, the installation still completes" {
+    printf 'this-is-not-a-real-tmux-command\n' >"$FIXTURE_HOME/.tmux.conf.local"
+
+    run env HOME="$FIXTURE_HOME" TMUX_SOURCE_FAIL_ON_CALL=3 \
+        TMUX_SOURCE_CALLS_FILE="$BATS_TEST_TMPDIR/source-calls" \
+        bash "$FIXTURE_REPO/install.sh"
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Your ~/.tmux.conf.local has errors"* ]]
+    [[ "$output" == *"installed successfully"* ]]
+    [ -f "$FIXTURE_HOME/.tmux.conf" ]
+    [ -d "$FIXTURE_HOME/.tmux/scripts" ]
+}
+
+@test "a valid ~/.tmux.conf.local produces no override warning" {
+    printf 'set -g mouse on\n' >"$FIXTURE_HOME/.tmux.conf.local"
+
+    run env HOME="$FIXTURE_HOME" bash "$FIXTURE_REPO/install.sh"
+
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"has errors"* ]]
+}

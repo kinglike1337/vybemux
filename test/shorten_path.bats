@@ -60,3 +60,26 @@ make_tmux_stub() {
     [ "$status" -eq 0 ]
     [ "$output" = '~/a/##[bg=red]x' ]
 }
+
+@test "a HOME containing regex metacharacters is matched literally" {
+    export HOME="/home/te.st[1]"
+    make_tmux_stub "/home/te.st[1]/long/project"
+    run bash "$SCRIPT" '%1'
+    [ "$status" -eq 0 ]
+    [ "$output" = "~/l/project" ]
+}
+
+@test "a path that only looks like HOME through a regex wildcard is not shortened to ~" {
+    export HOME="/home/te.st"
+    make_tmux_stub "/home/teXst/project"
+    run bash "$SCRIPT" '%1'
+    [ "$status" -eq 0 ]
+    [ "$output" = "/h/t/project" ]
+}
+
+@test "a sibling directory that merely starts with HOME is not treated as inside HOME" {
+    make_tmux_stub "/home/testuser2/project"
+    run bash "$SCRIPT" '%1'
+    [ "$status" -eq 0 ]
+    [ "$output" = "/h/t/project" ]
+}

@@ -21,4 +21,8 @@ fi
 
 # tmux parses #[...] in this output (status-right), so a directory name such as
 # "#[bg=red]x" could restyle the bar; "##" is tmux's escape for a literal "#".
-echo "$path" | sed "s|^$HOME|~|" | awk -F/ 'BEGIN{ORS=""}{for(i=1;i<NF;i++) printf "%s/", substr($i,1,1); print $NF}' | sed 's/#/##/g'
+if [[ -n "${HOME:-}" && ( "$path" == "$HOME" || "$path" == "$HOME"/* ) ]]; then
+    path="~${path#"$HOME"}"
+fi
+
+printf '%s\n' "$path" | awk -F/ 'BEGIN{ORS=""}{for(i=1;i<NF;i++) printf "%s/", substr($i,1,1); print $NF}' | sed 's/#/##/g'

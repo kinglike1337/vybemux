@@ -28,7 +28,7 @@ if [[ -n "$(git -C "$REPO_DIR" status --porcelain \
 fi
 
 submodule_status="$(git -C "$REPO_DIR" submodule status --recursive)"
-if grep -qE '^[+-U]' <<<"$submodule_status"; then
+if grep -qE '^[-+U]' <<<"$submodule_status"; then
     echo "Submodules must be initialized at their recorded commits" >&2
     exit 1
 fi

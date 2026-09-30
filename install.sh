@@ -441,6 +441,15 @@ else
 fi
 INSTALL_COMPLETE=true
 
+# The override file is validated on its own and only warns: the vybemux config
+# itself is fine, and tmux loads an override with errors (source-file -q) with
+# an error message rather than failing to start.
+if [ -f "$HOME/.tmux.conf.local" ]; then
+    if ! "$REPO_DIR/scripts/validate-tmux-conf.sh" --label 'your .tmux.conf.local' "$HOME/.tmux.conf.local"; then
+        echo_warning "Your ~/.tmux.conf.local has errors (see above); vybemux itself installed fine. Fix the override, tmux reports it at startup."
+    fi
+fi
+
 # Restore from backup if available (optional)
 echo_info "Restoring previous tmux session if available..."
 if [ -d "$HOME/.tmux/resurrect" ] && [ "$(ls -A "$HOME/.tmux/resurrect" 2>/dev/null)" ]; then

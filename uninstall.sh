@@ -73,7 +73,7 @@ is_installed_script() {
 }
 
 classify_tmux_dir() {
-    local path name
+    local path name script_path
     if [ -d "$TMUX_DIR" ]; then
         while IFS= read -r -d '' path; do
             name="$(basename "$path")"

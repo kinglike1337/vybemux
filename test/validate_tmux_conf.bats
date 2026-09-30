@@ -115,3 +115,52 @@ teardown() {
     run grep '@custom_copy_command' "$PROJECT_CONFIG"
     [ "$status" -ne 0 ]
 }
+
+@test "a broken ~/.tmux.conf.local does not make a valid config invalid" {
+    local fixture_home="$BATS_TEST_TMPDIR/home-local"
+    mkdir -p "$fixture_home"
+    printf 'this-is-not-a-real-tmux-command\n' >"$fixture_home/.tmux.conf.local"
+    printf 'source-file -q ~/.tmux.conf.local\nset -g mouse on\n' >"$BATS_TEST_TMPDIR/sources-local.conf"
+
+    run env HOME="$fixture_home" bash "$SCRIPT" "$BATS_TEST_TMPDIR/sources-local.conf"
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"tmux.conf is syntactically valid"* ]]
+}
+
+@test "the plugins of an existing installation are not started during validation" {
+    local fixture_home="$BATS_TEST_TMPDIR/home-tpm"
+    mkdir -p "$fixture_home/.tmux/plugins/tpm"
+    printf '#!/bin/bash\ntouch "%s/tpm-ran"\n' "$BATS_TEST_TMPDIR" >"$fixture_home/.tmux/plugins/tpm/tpm"
+    chmod +x "$fixture_home/.tmux/plugins/tpm/tpm"
+
+    run env HOME="$fixture_home" bash "$SCRIPT" "$PROJECT_CONFIG"
+
+    [ "$status" -eq 0 ]
+    # TPM is started asynchronously by the config's run-shell; give a job that
+    # did start time to touch its marker before asserting it never ran.
+    sleep 1
+    [ ! -e "$BATS_TEST_TMPDIR/tpm-ran" ]
+}
+
+@test "--label names the file in the messages" {
+    printf 'set -g mouse on\n' >"$BATS_TEST_TMPDIR/ok.conf"
+    printf 'this-is-not-a-real-tmux-command\n' >"$BATS_TEST_TMPDIR/bad.conf"
+
+    run bash "$SCRIPT" --label "your override" "$BATS_TEST_TMPDIR/ok.conf"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"your override is syntactically valid"* ]]
+
+    run bash "$SCRIPT" --label "your override" "$BATS_TEST_TMPDIR/bad.conf"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"your override contains syntax errors"* ]]
+}
+
+@test "a relative config path is resolved against the caller's directory" {
+    printf 'set -g mouse on\n' >"$BATS_TEST_TMPDIR/rel.conf"
+
+    run bash -c "cd '$BATS_TEST_TMPDIR' && bash '$SCRIPT' rel.conf"
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"syntactically valid"* ]]
+}
