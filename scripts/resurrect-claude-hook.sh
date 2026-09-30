@@ -220,47 +220,60 @@ resolve_session_id() {
 CLAUDE_ENV_CLEAR_PREFIX='unset "${!ANTHROPIC_@}" CLAUDE_CONFIG_DIR CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC CLAUDE_CODE_AUTO_COMPACT_WINDOW CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK; '
 
 # Classifies one process environment entry: "inline" (safe to replay in the
-# restore command), "secret" (ANTHROPIC_* value that must stay out of the
-# command line and the save file, see write_claude_secret_env_file) or
-# "skip" (not ours).
+# restore command), "secret" (value that must stay out of the command line
+# and the save file, see write_claude_secret_env_file) or "skip" (not ours).
 #
 # ANTHROPIC_* is NOT allowlisted by prefix: only an explicit list of
 # non-secret names is replayed with its value. An empty value is always
 # replayed (deliberate override, e.g. ANTHROPIC_API_KEY=""), as is nothing
 # else. A base URL carrying userinfo ("://user:pass@") counts as a secret.
+#
+# Any otherwise inline value containing "!" is routed to the env file too:
+# tmux-resurrect types the restore line into an interactive shell, where
+# history expansion is active. printf '%q' output is not safe against it
+# (bash's history quote tracking misreads e.g. a "\"" followed by $'...!...'),
+# and any "!" it deems unquoted makes the shell reject the WHOLE line (the
+# clear-prefix's "${!ANTHROPIC_@}" then fails with "event not found"), so the
+# pane is not restored at all. A sourced file is not history-expanded.
 classify_claude_env_entry() {
-    local key="$1" value="$2"
+    local key="$1" value="$2" class
 
     case "$key" in
     ANTHROPIC_[A-Z0-9_]*)
-        [ -n "$value" ] || {
-            echo inline
-            return 0
-        }
-        case "$key" in
-        ANTHROPIC_MODEL | ANTHROPIC_SMALL_FAST_MODEL | ANTHROPIC_BASE_URL | \
-            ANTHROPIC_DEFAULT_*_MODEL)
-            if [[ "$value" =~ ://[^/]*@ ]]; then
-                echo secret
-            else
-                echo inline
-            fi
-            ;;
-        *) echo secret ;;
-        esac
+        if [ -z "$value" ]; then
+            class=inline
+        else
+            case "$key" in
+            ANTHROPIC_MODEL | ANTHROPIC_SMALL_FAST_MODEL | ANTHROPIC_BASE_URL | \
+                ANTHROPIC_DEFAULT_*_MODEL)
+                if [[ "$value" =~ ://[^/]*@ ]]; then
+                    class=secret
+                else
+                    class=inline
+                fi
+                ;;
+            *) class=secret ;;
+            esac
+        fi
         ;;
     CLAUDE_CONFIG_DIR | \
         CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC | \
         CLAUDE_CODE_AUTO_COMPACT_WINDOW | \
         CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK)
-        echo inline
+        class=inline
         ;;
-    *) echo skip ;;
+    *) class=skip ;;
     esac
+
+    if [ "$class" = inline ] && [[ "$value" == *'!'* ]]; then
+        class=secret
+    fi
+    echo "$class"
 }
 
 # Writes the resolved process's secret ANTHROPIC_* values (API key, auth
-# token, custom headers, URLs with userinfo, ...) to a private per-session
+# token, custom headers, URLs with userinfo, ...) and any allowlisted value
+# containing "!" (see classify_claude_env_entry) to a private per-session
 # file next to the save file, as "export KEY=value" lines, and prints the
 # file's path. The restore command only sources that path, so the secret
 # never appears in the save file, the typed command line, shell history or
@@ -269,6 +282,14 @@ classify_claude_env_entry() {
 # script, which keeps files older save files still reference.
 write_claude_secret_env_file() {
     local pid="$1" session_id="$2" entry key value body="" file tmp
+    # /proc/<pid>/environ is raw bytes, not text in the hook's locale: under a
+    # UTF-8 locale, "read -d ''" treats a value ending in an incomplete
+    # multibyte sequence (e.g. a trailing \357) as continuing into the NUL
+    # delimiter and silently drops the NEXT variable, which the clear-prefix
+    # then removes from the restored pane as well. Byte semantics (scoped to
+    # this function) keep every entry intact; printf '%q' then escapes all
+    # non-ASCII bytes, so the output is the same in every locale.
+    local LC_ALL=C
 
     file="${SECRET_ENV_DIR}/${session_id}.env"
 
@@ -297,6 +318,9 @@ write_claude_secret_env_file() {
 capture_claude_env_prefix() {
     local pid="$1"
     local entry key value entries=() sorted prefix=""
+    # Byte semantics for reading /proc/<pid>/environ; see
+    # write_claude_secret_env_file.
+    local LC_ALL=C
 
     [ -n "$pid" ] && [ -r "/proc/$pid/environ" ] || return 0
 
@@ -360,7 +384,14 @@ process_claude_pane_line() {
         env_prefix="$(capture_claude_env_prefix "$pid" 2>/dev/null)" || env_prefix=""
         secret_file="$(write_claude_secret_env_file "$pid" "$session_id" 2>/dev/null)" || secret_file=""
         if [ -n "$secret_file" ]; then
-            printf ':%s( . %s; %sclaude --resume %s )' "$CLAUDE_ENV_CLEAR_PREFIX" "$(printf '%q' "$secret_file")" "$env_prefix" "$session_id"
+            # Quoted byte-wise like the values (and like the pruning below
+            # expects): a non-ASCII resurrect directory, e.g. under a $HOME
+            # with an umlaut, then yields the same pure-ASCII line whatever
+            # the tmux server's locale is.
+            printf ':%s( . %s; %sclaude --resume %s )' "$CLAUDE_ENV_CLEAR_PREFIX" "$(
+                LC_ALL=C
+                printf '%q' "$secret_file"
+            )" "$env_prefix" "$session_id"
         else
             printf ':%s%sclaude --resume %s' "$CLAUDE_ENV_CLEAR_PREFIX" "$env_prefix" "$session_id"
         fi
@@ -429,13 +460,20 @@ mv "$TMPFILE" "$RESURRECT_FILE"
 # An env file is only stale once no save file in the directory references it:
 # tmux-resurrect keeps older tmux_resurrect_*.txt files (and "last" may be
 # pointed at one), and pruning against the current save alone would leave
-# those with a dangling env path.
+# those with a dangling env path. References are matched in the byte-wise
+# quoting process_claude_pane_line writes, and also in the current locale's
+# quoting that save files from before that change may still contain.
 if [ -d "$SECRET_ENV_DIR" ]; then
     rm -f "$SECRET_ENV_DIR"/.env.*
     for stale_file in "$SECRET_ENV_DIR"/*.env; do
         [ -e "$stale_file" ] || continue
-        quoted_stale="$(printf '%q' "$stale_file")"
-        grep -qF -- "$quoted_stale" "$RESURRECT_FILE" "$RESURRECT_DIR"/tmux_resurrect_*.txt 2>/dev/null ||
+        quoted_stale="$(
+            LC_ALL=C
+            printf '%q' "$stale_file"
+        )"
+        quoted_stale_locale="$(printf '%q' "$stale_file")"
+        grep -qF -e "$quoted_stale" -e "$quoted_stale_locale" \
+            "$RESURRECT_FILE" "$RESURRECT_DIR"/tmux_resurrect_*.txt 2>/dev/null ||
             rm -f "$stale_file"
     done
 fi

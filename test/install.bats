@@ -355,3 +355,18 @@ STUB
     [ "$status" -eq 0 ]
     [[ "$output" != *"has errors"* ]]
 }
+
+@test "only the override check runs with --keep-home; the config checks stay isolated" {
+    local calls_log="$BATS_TEST_TMPDIR/validator-calls"
+    printf '#!/bin/bash\nprintf "%%s\\n" "$*" >>"%s"\nexit 0\n' "$calls_log" \
+        >"$FIXTURE_REPO/scripts/validate-tmux-conf.sh"
+    chmod +x "$FIXTURE_REPO/scripts/validate-tmux-conf.sh"
+
+    run env HOME="$FIXTURE_HOME" bash "$FIXTURE_REPO/install.sh"
+
+    [ "$status" -eq 0 ]
+    [ "$(wc -l <"$calls_log")" -eq 3 ]
+    [[ "$(sed -n 1p "$calls_log")" != *"--keep-home"* ]]
+    [[ "$(sed -n 2p "$calls_log")" != *"--keep-home"* ]]
+    [[ "$(sed -n 3p "$calls_log")" == "--keep-home --label your .tmux.conf.local "*".tmux.conf.local" ]]
+}

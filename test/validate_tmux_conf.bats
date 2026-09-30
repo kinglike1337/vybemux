@@ -164,3 +164,44 @@ teardown() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"syntactically valid"* ]]
 }
+
+@test "--keep-home lets a user override resolve its ~-relative includes against the real HOME" {
+    local fixture_home="$BATS_TEST_TMPDIR/home-keep"
+    mkdir -p "$fixture_home"
+    printf 'set -g mouse on\n' >"$fixture_home/extra.conf"
+    printf 'source-file ~/extra.conf\nif-shell "test -f ~/extra.conf" "set -g @found yes"\n' >"$fixture_home/.tmux.conf.local"
+
+    run env HOME="$fixture_home" bash "$SCRIPT" --keep-home --label "your override" "$fixture_home/.tmux.conf.local"
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"your override is syntactically valid"* ]]
+}
+
+@test "without --keep-home the same ~-relative include is not found (isolation unchanged)" {
+    local fixture_home="$BATS_TEST_TMPDIR/home-isolated"
+    mkdir -p "$fixture_home"
+    printf 'set -g mouse on\n' >"$fixture_home/extra.conf"
+    printf 'source-file ~/extra.conf\n' >"$fixture_home/.tmux.conf.local"
+
+    run env HOME="$fixture_home" bash "$SCRIPT" "$fixture_home/.tmux.conf.local"
+
+    [ "$status" -eq 1 ]
+}
+
+@test "--keep-home still reports a genuinely broken override" {
+    local fixture_home="$BATS_TEST_TMPDIR/home-broken-keep"
+    mkdir -p "$fixture_home"
+    printf 'this-is-not-a-real-tmux-command\n' >"$fixture_home/.tmux.conf.local"
+
+    run env HOME="$fixture_home" bash "$SCRIPT" --keep-home --label "your override" "$fixture_home/.tmux.conf.local"
+
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"unknown command"* ]]
+    [[ "$output" == *"your override contains syntax errors"* ]]
+}
+
+@test "an unknown option is rejected" {
+    run bash "$SCRIPT" --bogus "$PROJECT_CONFIG"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Unknown option: --bogus"* ]]
+}

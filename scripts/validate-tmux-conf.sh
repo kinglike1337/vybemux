@@ -20,9 +20,14 @@
 # existing installation (TPM, tmux-continuum, which may even start a restore)
 # when they exist, and none of that belongs in a syntax check of one file.
 #
-# Usage: validate-tmux-conf.sh [--label TEXT] [config-file]
+# Usage: validate-tmux-conf.sh [--label TEXT] [--keep-home] [config-file]
 #   --label TEXT  names the file in the messages (default "tmux.conf"), e.g.
 #                 a user override file validated on its own.
+#   --keep-home   run with the caller's real HOME/XDG_CONFIG_HOME instead of
+#                 the temporary one. For a user's own override file: tmux
+#                 loads it with the real HOME, so its ~-relative includes
+#                 (source-file ~/extra.conf, if-shell "test -f ~/...") must
+#                 resolve there. Never use it for the vybemux tmux.conf.
 #
 # The socket name is unique to the PID and is never shared with the real,
 # potentially running tmux server of this development session.
@@ -35,12 +40,25 @@ echo_error() { echo -e "${RED}✗ $1${NC}" >&2; }
 echo_success() { echo -e "${GREEN}✓ $1${NC}"; }
 
 LABEL="tmux.conf"
-if [[ "${1:-}" == "--label" ]]; then
-    LABEL="${2:?Usage: validate-tmux-conf.sh [--label TEXT] [config-file]}"
-    shift 2
-fi
+KEEP_HOME=false
+while [[ "${1:-}" == --* ]]; do
+    case "$1" in
+    --label)
+        LABEL="${2:?Usage: validate-tmux-conf.sh [--label TEXT] [--keep-home] [config-file]}"
+        shift 2
+        ;;
+    --keep-home)
+        KEEP_HOME=true
+        shift
+        ;;
+    *)
+        echo_error "Unknown option: $1"
+        exit 1
+        ;;
+    esac
+done
 
-readonly LABEL
+readonly LABEL KEEP_HOME
 readonly CONF_FILE="${1:-$(dirname "$0")/../tmux.conf}"
 readonly SOCKET_NAME="vybemux-conf-validate-$$"
 VALIDATION_HOME=""
@@ -59,11 +77,14 @@ if [[ ! -f "$CONF_FILE" ]]; then
 fi
 
 CONF_FILE_ABS="$(cd "$(dirname "$CONF_FILE")" && pwd)/$(basename "$CONF_FILE")"
-VALIDATION_HOME="$(mktemp -d)"
-mkdir -p "$VALIDATION_HOME/.config"
-
-HOME="$VALIDATION_HOME" XDG_CONFIG_HOME="$VALIDATION_HOME/.config" \
+if [[ "$KEEP_HOME" == true ]]; then
     tmux -L "$SOCKET_NAME" -f /dev/null new-session -d -s validate >/dev/null
+else
+    VALIDATION_HOME="$(mktemp -d)"
+    mkdir -p "$VALIDATION_HOME/.config"
+    HOME="$VALIDATION_HOME" XDG_CONFIG_HOME="$VALIDATION_HOME/.config" \
+        tmux -L "$SOCKET_NAME" -f /dev/null new-session -d -s validate >/dev/null
+fi
 
 if ! tmux -L "$SOCKET_NAME" source-file "$CONF_FILE_ABS"; then
     echo_error "$LABEL contains syntax errors (see message above): $CONF_FILE"

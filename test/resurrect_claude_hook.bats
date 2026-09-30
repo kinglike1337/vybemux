@@ -273,7 +273,7 @@ last_field() {
 
 @test "a value with shell-special characters is safely quoted" {
     local pid proc_start
-    pid="$(spawn_fake_claude_pid_with_env 'ANTHROPIC_BASE_URL=http://example.test/x y!$z')"
+    pid="$(spawn_fake_claude_pid_with_env 'ANTHROPIC_BASE_URL=http://example.test/x y;$z')"
     proc_start="$(proc_start_time_of "$pid")"
 
     make_tmux_stub $'sess\t0\t0\t@1\t%1'
@@ -282,7 +282,75 @@ last_field() {
 
     run_hook
     [ "$status" -eq 0 ]
-    [ "$(last_field)" = ":${CLEAR_PREFIX}$(printf 'ANTHROPIC_BASE_URL=%q' 'http://example.test/x y!$z') claude --resume session-abc" ]
+    [ "$(last_field)" = ":${CLEAR_PREFIX}$(printf 'ANTHROPIC_BASE_URL=%q' 'http://example.test/x y;$z') claude --resume session-abc" ]
+}
+
+@test "a non-ASCII resurrect directory yields the same pure-ASCII restore line under C and UTF-8" {
+    local utf8_locale pid proc_start res_dir="$BATS_TEST_TMPDIR/jürgen" line_c line_utf8
+    utf8_locale="$(locale -a 2>/dev/null | grep -ixE 'C\.utf-?8|en_US\.utf-?8' | head -n 1)" || true
+    [ -n "$utf8_locale" ] || skip "no UTF-8 locale installed"
+    pid="$(spawn_fake_claude_pid_with_env ANTHROPIC_API_KEY=key-in-file)"
+    proc_start="$(proc_start_time_of "$pid")"
+    make_tmux_stub $'sess\t0\t0\t@1\t%1'
+    write_session_json "$pid" "session-abc" "sess:@1.%1" "/home/testuser/project" "$proc_start"
+    mkdir -p "$res_dir"
+
+    write_resurrect_file "claude" ":/home/testuser/project"
+    mv "$BATS_TEST_TMPDIR/resurrect.txt" "$res_dir/resurrect.txt"
+    LC_ALL=C run "$BASH_BIN" "$SCRIPT" "$res_dir/resurrect.txt"
+    [ "$status" -eq 0 ]
+    line_c="$(awk -F'\t' '{ print $11 }' "$res_dir/resurrect.txt")"
+
+    write_resurrect_file "claude" ":/home/testuser/project"
+    mv "$BATS_TEST_TMPDIR/resurrect.txt" "$res_dir/resurrect.txt"
+    LC_ALL="$utf8_locale" run "$BASH_BIN" "$SCRIPT" "$res_dir/resurrect.txt"
+    [ "$status" -eq 0 ]
+    line_utf8="$(awk -F'\t' '{ print $11 }' "$res_dir/resurrect.txt")"
+
+    [[ "$line_c" == *"claude-env/session-abc.env"* ]]
+    [ "$line_c" = "$line_utf8" ]
+    ! LC_ALL=C grep -q '[^ -~]' <<<"$line_utf8"
+}
+
+@test "an env file referenced by an older save in locale-dependent quoting is kept" {
+    local utf8_locale pid proc_start res_dir="$BATS_TEST_TMPDIR/jürgen"
+    utf8_locale="$(locale -a 2>/dev/null | grep -ixE 'C\.utf-?8|en_US\.utf-?8' | head -n 1)" || true
+    [ -n "$utf8_locale" ] || skip "no UTF-8 locale installed"
+    mkdir -p "$res_dir/claude-env"
+    printf 'export ANTHROPIC_API_KEY=old\n' >"$res_dir/claude-env/older.env"
+    # Written before the hook quoted paths byte-wise: raw UTF-8 path.
+    printf 'pane\ts\t0\t:w\t1\t0\t:t\t:/x\t0\tclaude\t:( . %s; claude --resume older )\n' \
+        "$res_dir/claude-env/older.env" >"$res_dir/tmux_resurrect_20260101T000000.txt"
+    pid="$(spawn_fake_claude_pid_with_env ANTHROPIC_MODEL=m1)"
+    proc_start="$(proc_start_time_of "$pid")"
+    make_tmux_stub $'sess\t0\t0\t@1\t%1'
+    write_session_json "$pid" "session-abc" "sess:@1.%1" "/home/testuser/project" "$proc_start"
+    write_resurrect_file "claude" ":/home/testuser/project"
+    mv "$BATS_TEST_TMPDIR/resurrect.txt" "$res_dir/resurrect.txt"
+
+    LC_ALL="$utf8_locale" run "$BASH_BIN" "$SCRIPT" "$res_dir/resurrect.txt"
+    [ "$status" -eq 0 ]
+    [ -e "$res_dir/claude-env/older.env" ]
+}
+
+@test "under a UTF-8 locale, a value ending in an incomplete multibyte sequence does not swallow the next variable" {
+    local utf8_locale pid proc_start env_file
+    utf8_locale="$(locale -a 2>/dev/null | grep -ixE 'C\.utf-?8|en_US\.utf-?8' | head -n 1)" || true
+    [ -n "$utf8_locale" ] || skip "no UTF-8 locale installed"
+    # Order matters: env appends these in argument order, so the key directly
+    # follows the value ending in \357 inside /proc/<pid>/environ.
+    pid="$(spawn_fake_claude_pid_with_env $'ANTHROPIC_MODEL=model\357' ANTHROPIC_API_KEY=key-after-it CLAUDE_CONFIG_DIR=/cfg)"
+    proc_start="$(proc_start_time_of "$pid")"
+
+    make_tmux_stub $'sess\t0\t0\t@1\t%1'
+    write_session_json "$pid" "session-abc" "sess:@1.%1" "/home/testuser/project" "$proc_start"
+    write_resurrect_file "claude" ":/home/testuser/project"
+
+    LC_ALL="$utf8_locale" run_hook
+    [ "$status" -eq 0 ]
+    env_file="$BATS_TEST_TMPDIR/claude-env/session-abc.env"
+    [ "$(last_field)" = ":${CLEAR_PREFIX}( . $(printf '%q' "$env_file"); ANTHROPIC_MODEL=\$'model\\357' CLAUDE_CONFIG_DIR=/cfg claude --resume session-abc )" ]
+    grep -qx 'export ANTHROPIC_API_KEY=key-after-it' "$env_file"
 }
 
 @test "an alternate CLAUDE_CONFIG_DIR profile's session directory is also discovered" {
@@ -674,4 +742,42 @@ run_line_in_pane_shell() {
     run_hook
     [ "$status" -eq 0 ]
     [ -e "$BATS_TEST_TMPDIR/claude-env/older.env" ]
+}
+
+# Like run_line_in_pane_shell, but types the line into an interactive bash
+# (stdin, not -c), as tmux-resurrect's send-keys does: only there is history
+# expansion active.
+run_line_in_interactive_pane_shell() {
+    local out_env="$1" cmd unset_args=()
+    shift
+    cmd="$(last_field)"
+    cmd="${cmd#:}"
+    install_claude_env_dump_stub
+    mapfile -t unset_args < <(claude_env_unset_args)
+    (cd "$BATS_TEST_TMPDIR" && env "${unset_args[@]}" HISTFILE=/dev/null CLAUDE_ENV_DUMP="$out_env" "$@" \
+        bash --norc --noprofile -i <<<"$cmd" >"$BATS_TEST_TMPDIR/pane.log" 2>&1) || true
+}
+
+@test "a value containing ! goes to the env file, so history expansion cannot reject the restore line" {
+    local pid proc_start out_env="$BATS_TEST_TMPDIR/child-env-bang"
+    # %q renders the first as http://proxy.test/\"a and the second as
+    # $'m!\001'; interactive bash's history expansion misreads that pair and
+    # used to abort the whole line with "!ANTHROPIC_@}: event not found".
+    pid="$(spawn_fake_claude_pid_with_env 'ANTHROPIC_BASE_URL=http://proxy.test/"a' $'ANTHROPIC_MODEL=m!\001')"
+    proc_start="$(proc_start_time_of "$pid")"
+
+    make_tmux_stub $'sess\t0\t0\t@1\t%1'
+    write_session_json "$pid" "session-abc" "sess:@1.%1" "/home/testuser/project" "$proc_start"
+    write_resurrect_file "claude" ":/home/testuser/project"
+
+    run_hook
+    [ "$status" -eq 0 ]
+    # The clear-prefix's "${!ANTHROPIC_@}" is the only "!" left in the line.
+    [[ "$(last_field)" != *'!'*'!'* ]]
+    grep -qF "export ANTHROPIC_MODEL=\$'m!\\001'" "$BATS_TEST_TMPDIR/claude-env/session-abc.env"
+
+    run_line_in_interactive_pane_shell "$out_env"
+    ! grep -q 'event not found' "$BATS_TEST_TMPDIR/pane.log"
+    grep -qxF $'ANTHROPIC_MODEL=m!\001' "$out_env"
+    grep -qxF 'ANTHROPIC_BASE_URL=http://proxy.test/"a' "$out_env"
 }

@@ -441,11 +441,12 @@ else
 fi
 INSTALL_COMPLETE=true
 
-# The override file is validated on its own and only warns: the vybemux config
+# The override file is validated on its own, with the real HOME (tmux loads it
+# that way, so its ~-relative includes must resolve), and only warns: the vybemux config
 # itself is fine, and tmux loads an override with errors (source-file -q) with
 # an error message rather than failing to start.
 if [ -f "$HOME/.tmux.conf.local" ]; then
-    if ! "$REPO_DIR/scripts/validate-tmux-conf.sh" --label 'your .tmux.conf.local' "$HOME/.tmux.conf.local"; then
+    if ! "$REPO_DIR/scripts/validate-tmux-conf.sh" --keep-home --label 'your .tmux.conf.local' "$HOME/.tmux.conf.local"; then
         echo_warning "Your ~/.tmux.conf.local has errors (see above); vybemux itself installed fine. Fix the override, tmux reports it at startup."
     fi
 fi
