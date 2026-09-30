@@ -11,6 +11,10 @@
 # that server—this produces "file:line: unknown command: ..." and a real
 # non-zero error exit status.
 #
+# The server starts with -f /dev/null so the user's own ~/.tmux.conf (or XDG
+# config) is not loaded first: the result must depend only on the file under
+# test, not on whatever happens to be installed in $HOME.
+#
 # The socket name is unique to the PID and is never shared with the real,
 # potentially running tmux server of this development session.
 # =============================================================================
@@ -34,7 +38,7 @@ if [[ ! -f "$CONF_FILE" ]]; then
     exit 1
 fi
 
-tmux -L "$SOCKET_NAME" new-session -d -s validate >/dev/null
+tmux -L "$SOCKET_NAME" -f /dev/null new-session -d -s validate >/dev/null
 
 if ! tmux -L "$SOCKET_NAME" source-file "$CONF_FILE"; then
     echo_error "tmux.conf contains syntax errors (see message above): $CONF_FILE"

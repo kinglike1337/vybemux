@@ -105,3 +105,50 @@ EOF
     [ "$status" -eq 0 ]
     grep -qx "new-window -t mysession -n files -c /home/testuser/project true" "$STUB_LOG"
 }
+
+@test "a tool only reachable through the extended PATH is launched by absolute path" {
+    local fixture_home="$BATS_TEST_TMPDIR/home"
+    mkdir -p "$fixture_home/.local/bin"
+    printf '#!/bin/bash\n' >"$fixture_home/.local/bin/mytui"
+    chmod +x "$fixture_home/.local/bin/mytui"
+    make_tmux_stub "mytui" "" ""
+
+    run env HOME="$fixture_home" bash "$SCRIPT" "git"
+
+    [ "$status" -eq 0 ]
+    grep -qx "new-window -t mysession -n git -c /home/testuser/project $fixture_home/.local/bin/mytui" "$STUB_LOG"
+}
+
+@test "arguments of an override are preserved after the resolved program" {
+    local fixture_home="$BATS_TEST_TMPDIR/home"
+    mkdir -p "$fixture_home/.local/bin"
+    printf '#!/bin/bash\n' >"$fixture_home/.local/bin/mytui"
+    chmod +x "$fixture_home/.local/bin/mytui"
+    make_tmux_stub "mytui --flag value" "" ""
+
+    run env HOME="$fixture_home" bash "$SCRIPT" "git"
+
+    [ "$status" -eq 0 ]
+    grep -qx "new-window -t mysession -n git -c /home/testuser/project $fixture_home/.local/bin/mytui --flag value" "$STUB_LOG"
+}
+
+@test "a resolved path with spaces is shell-quoted for the new window" {
+    local fixture_home="$BATS_TEST_TMPDIR/my home"
+    mkdir -p "$fixture_home/.local/bin"
+    printf '#!/bin/bash\n' >"$fixture_home/.local/bin/mytui"
+    chmod +x "$fixture_home/.local/bin/mytui"
+    make_tmux_stub "mytui" "" ""
+
+    run env HOME="$fixture_home" bash "$SCRIPT" "git"
+
+    [ "$status" -eq 0 ]
+    grep -Fqx "new-window -t mysession -n git -c /home/testuser/project $(printf '%q' "$fixture_home/.local/bin/mytui")" "$STUB_LOG"
+}
+
+@test "an override with arguments whose program is missing still shows the notice" {
+    make_tmux_stub "definitely-not-a-real-binary-xyz --flag" "" ""
+    run bash "$SCRIPT" "git"
+    [ "$status" -eq 0 ]
+    grep -Fq "tui-tab: 'definitely-not-a-real-binary-xyz' is not installed (set @git_tui)" "$STUB_LOG"
+    run ! grep -q "^new-window" "$STUB_LOG"
+}

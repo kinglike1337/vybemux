@@ -193,9 +193,9 @@ last_field() {
     [ "$(last_field)" = ":${CLEAR_PREFIX}claude --resume session-abc" ]
 }
 
-@test "captures an ANTHROPIC_-prefixed env var from the resolved PID into the resumed command" {
-    local pid proc_start
-    pid="$(spawn_fake_claude_pid_with_env ANTHROPIC_API_KEY=fake-key-123)"
+@test "a non-empty credential goes to a private env file, never into the save file or command line" {
+    local pid proc_start env_file
+    pid="$(spawn_fake_claude_pid_with_env ANTHROPIC_API_KEY=fake-key-123 ANTHROPIC_AUTH_TOKEN=fake-token-456 ANTHROPIC_MODEL=m1)"
     proc_start="$(proc_start_time_of "$pid")"
 
     make_tmux_stub $'sess\t0\t0\t@1\t%1'
@@ -204,7 +204,27 @@ last_field() {
 
     run_hook
     [ "$status" -eq 0 ]
-    [ "$(last_field)" = ":${CLEAR_PREFIX}ANTHROPIC_API_KEY=fake-key-123 claude --resume session-abc" ]
+    env_file="$BATS_TEST_TMPDIR/claude-env/session-abc.env"
+    [ "$(last_field)" = ":${CLEAR_PREFIX}( . $(printf '%q' "$env_file"); ANTHROPIC_MODEL=m1 claude --resume session-abc )" ]
+    ! grep -qE 'fake-key-123|fake-token-456' "$BATS_TEST_TMPDIR/resurrect.txt"
+    grep -qx 'export ANTHROPIC_API_KEY=fake-key-123' "$env_file"
+    grep -qx 'export ANTHROPIC_AUTH_TOKEN=fake-token-456' "$env_file"
+    [ "$(stat -c %a "$env_file")" = "600" ]
+    [ "$(stat -c %a "$BATS_TEST_TMPDIR/claude-env")" = "700" ]
+}
+
+@test "a session id with shell metacharacters falls back to the picker" {
+    local pid proc_start
+    pid="$(spawn_fake_claude_pid_with_env ANTHROPIC_MODEL=m1)"
+    proc_start="$(proc_start_time_of "$pid")"
+
+    make_tmux_stub $'sess\t0\t0\t@1\t%1'
+    write_session_json "$pid" 'abc; touch /tmp/pwned' "sess:@1.%1" "/home/testuser/project" "$proc_start"
+    write_resurrect_file "claude" ":/home/testuser/project"
+
+    run_hook
+    [ "$status" -eq 0 ]
+    [ "$(last_field)" = ":claude --resume" ]
 }
 
 @test "captures multiple allowlisted vars sorted alphabetically by name" {
@@ -232,7 +252,9 @@ last_field() {
 
     run_hook
     [ "$status" -eq 0 ]
-    [ "$(last_field)" = ":${CLEAR_PREFIX}ANTHROPIC_API_KEY=fake-key-123 claude --resume session-abc" ]
+    [ "$(last_field)" = ":${CLEAR_PREFIX}( . $(printf '%q' "$BATS_TEST_TMPDIR/claude-env/session-abc.env"); claude --resume session-abc )" ]
+    grep -qx 'export ANTHROPIC_API_KEY=fake-key-123' "$BATS_TEST_TMPDIR/claude-env/session-abc.env"
+    ! grep -qE 'internal-id|internal-secret|leak-me' "$BATS_TEST_TMPDIR/claude-env/session-abc.env"
 }
 
 @test "an allowlisted var with an empty value survives as KEY=''" {
@@ -552,4 +574,104 @@ EOF
     run env "${unset_args[@]}" bash -c 'f() { echo "$#"; }; f "${!ANTHROPIC_@}"'
     [ "$status" -eq 0 ]
     [ "$output" = "0" ]
+}
+
+
+run_line_in_pane_shell() {
+    local out_env="$1" cmd unset_args=()
+    shift
+    cmd="$(last_field)"
+    cmd="${cmd#:}"
+    install_claude_env_dump_stub
+    mapfile -t unset_args < <(claude_env_unset_args)
+    env "${unset_args[@]}" CLAUDE_ENV_DUMP="$out_env" "$@" bash -c "$cmd"
+}
+
+@test "executing the generated line restores the credential from the env file even though the pane shell has none" {
+    local pid proc_start out_env="$BATS_TEST_TMPDIR/child-env-key"
+    pid="$(spawn_fake_claude_pid_with_env ANTHROPIC_API_KEY=wrapper-only-key ANTHROPIC_MODEL=m1)"
+    proc_start="$(proc_start_time_of "$pid")"
+
+    make_tmux_stub $'sess\t0\t0\t@1\t%1'
+    write_session_json "$pid" "session-abc" "sess:@1.%1" "/home/testuser/project" "$proc_start"
+    write_resurrect_file "claude" ":/home/testuser/project"
+
+    run_hook
+    [ "$status" -eq 0 ]
+    ! grep -q 'wrapper-only-key' "$BATS_TEST_TMPDIR/resurrect.txt"
+
+    run_line_in_pane_shell "$out_env" ANTHROPIC_DEFAULT_OPUS_MODEL=leaked
+    grep -qx 'ANTHROPIC_API_KEY=wrapper-only-key' "$out_env"
+    grep -qx 'ANTHROPIC_MODEL=m1' "$out_env"
+    ! grep -q '^ANTHROPIC_DEFAULT_' "$out_env"
+}
+
+@test "ANTHROPIC_CUSTOM_HEADERS and a base URL with userinfo go to the env file and survive a restore" {
+    local pid proc_start out_env="$BATS_TEST_TMPDIR/child-env-hdr"
+    pid="$(spawn_fake_claude_pid_with_env 'ANTHROPIC_CUSTOM_HEADERS=Authorization: Bearer sekrit' ANTHROPIC_BASE_URL=https://user:pass@proxy.test/v1)"
+    proc_start="$(proc_start_time_of "$pid")"
+
+    make_tmux_stub $'sess\t0\t0\t@1\t%1'
+    write_session_json "$pid" "session-abc" "sess:@1.%1" "/home/testuser/project" "$proc_start"
+    write_resurrect_file "claude" ":/home/testuser/project"
+
+    run_hook
+    [ "$status" -eq 0 ]
+    ! grep -qE 'sekrit|user:pass' "$BATS_TEST_TMPDIR/resurrect.txt"
+
+    run_line_in_pane_shell "$out_env"
+    grep -qx 'ANTHROPIC_CUSTOM_HEADERS=Authorization: Bearer sekrit' "$out_env"
+    grep -qx 'ANTHROPIC_BASE_URL=https://user:pass@proxy.test/v1' "$out_env"
+}
+
+@test "a deliberately empty credential override stays inline and still clears the pane shell's own key" {
+    local pid proc_start out_env="$BATS_TEST_TMPDIR/child-env-empty"
+    pid="$(spawn_fake_claude_pid_with_env ANTHROPIC_API_KEY=)"
+    proc_start="$(proc_start_time_of "$pid")"
+
+    make_tmux_stub $'sess\t0\t0\t@1\t%1'
+    write_session_json "$pid" "session-abc" "sess:@1.%1" "/home/testuser/project" "$proc_start"
+    write_resurrect_file "claude" ":/home/testuser/project"
+
+    run_hook
+    [ "$status" -eq 0 ]
+    [ ! -e "$BATS_TEST_TMPDIR/claude-env" ]
+
+    run_line_in_pane_shell "$out_env" ANTHROPIC_API_KEY=global-default
+    grep -qx 'ANTHROPIC_API_KEY=' "$out_env"
+}
+
+@test "stale env files of sessions no longer in the save file are removed" {
+    local pid proc_start
+    mkdir -p "$BATS_TEST_TMPDIR/claude-env"
+    printf 'export ANTHROPIC_API_KEY=old\n' >"$BATS_TEST_TMPDIR/claude-env/gone.env"
+    pid="$(spawn_fake_claude_pid_with_env ANTHROPIC_MODEL=m1)"
+    proc_start="$(proc_start_time_of "$pid")"
+
+    make_tmux_stub $'sess\t0\t0\t@1\t%1'
+    write_session_json "$pid" "session-abc" "sess:@1.%1" "/home/testuser/project" "$proc_start"
+    write_resurrect_file "claude" ":/home/testuser/project"
+
+    run_hook
+    [ "$status" -eq 0 ]
+    [ ! -e "$BATS_TEST_TMPDIR/claude-env/gone.env" ]
+}
+
+@test "an env file still referenced by an older save file is kept" {
+    local pid proc_start
+    mkdir -p "$BATS_TEST_TMPDIR/claude-env"
+    printf 'export ANTHROPIC_API_KEY=old\n' >"$BATS_TEST_TMPDIR/claude-env/older.env"
+    printf 'pane\ts\t0\t:w\t1\t0\t:t\t:/x\t0\tclaude\t:( . %s; claude --resume older )\n' \
+        "$(printf '%q' "$BATS_TEST_TMPDIR/claude-env/older.env")" \
+        >"$BATS_TEST_TMPDIR/tmux_resurrect_20260101T000000.txt"
+    pid="$(spawn_fake_claude_pid_with_env ANTHROPIC_MODEL=m1)"
+    proc_start="$(proc_start_time_of "$pid")"
+
+    make_tmux_stub $'sess\t0\t0\t@1\t%1'
+    write_session_json "$pid" "session-abc" "sess:@1.%1" "/home/testuser/project" "$proc_start"
+    write_resurrect_file "claude" ":/home/testuser/project"
+
+    run_hook
+    [ "$status" -eq 0 ]
+    [ -e "$BATS_TEST_TMPDIR/claude-env/older.env" ]
 }

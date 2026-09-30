@@ -42,6 +42,7 @@ unexpected_entry="$(find -H "$resurrect_dir" -mindepth 1 -maxdepth 1 \
     ! -name 'tmux_resurrect_*.txt' \
     ! -name 'pane_contents.tar.gz' \
     ! -name 'last' \
+    ! -name 'claude-env' \
     ! -name 'save' \
     ! -name 'restore' \
     -print -quit)"
@@ -67,6 +68,12 @@ for operation in save restore; do
             -exec chmod 600 {} +
     fi
 done
+
+secret_env_dir="$resurrect_dir/claude-env"
+if [[ -d "$secret_env_dir" ]]; then
+    chmod 700 "$secret_env_dir"
+    find -H "$secret_env_dir" -maxdepth 1 -type f -exec chmod 600 {} +
+fi
 
 find -H "$resurrect_dir" -mindepth 1 -maxdepth 1 -type f \
     \( -name 'tmux_resurrect_*.txt' -o -name 'pane_contents.tar.gz' \) \

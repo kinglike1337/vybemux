@@ -28,9 +28,20 @@ case "$role" in
 esac
 
 # Command must be installed; otherwise do not create a tab (avoid an empty window).
-if ! command -v "$cmd" >/dev/null 2>&1; then
-    tmux display-message "tui-tab: '$cmd' is not installed (set @${role}_tui)"
+# Only the first word is the program (an override may carry arguments).
+cmd_word="${cmd%% *}"
+cmd_args="${cmd#"$cmd_word"}"
+if ! cmd_bin="$(command -v "$cmd_word" 2>/dev/null)"; then
+    tmux display-message "tui-tab: '$cmd_word' is not installed (set @${role}_tui)"
     exit 0
+fi
+
+# The new window is started by the tmux server, whose PATH lacks the user
+# locations prepended above: bake the resolved absolute path into the command
+# (same approach as scripts/ai-tools-menu.sh). Builtins/aliases resolve to a
+# bare name and are passed through unchanged.
+if [[ "$cmd_bin" == /* ]]; then
+    cmd="$(printf '%q' "$cmd_bin")${cmd_args}"
 fi
 
 # Session + path of the calling session/pane (robust even with detached sessions).

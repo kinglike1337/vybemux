@@ -85,12 +85,17 @@ stub_tool() {
     grep -qx -- "%1" "$STUB_LOG"
 }
 
-@test "new-window commands target the calling session explicitly (-t)" {
+@test "new-window commands target the session via tmux's own inert #{session_id}, not a resolved name" {
+    # #{session_id} ("$N") is assigned by tmux itself, never derived from a
+    # user-controlled string, unlike a resolved session *name* — see the
+    # comment in ai-tools-menu.sh for why baking in the name via string
+    # interpolation would still be exploitable even as a tmux format token.
     make_tmux_stub
     stub_tool claude
     run bash "$SCRIPT"
     [ "$status" -eq 0 ]
-    grep -q -- '-t "test-session"' "$STUB_LOG"
+    grep -q -- '-t #{session_id}' "$STUB_LOG"
+    run ! grep -q "test-session" "$STUB_LOG"
 }
 
 @test "only codex installed -> menu contains exclusively Codex entries" {
@@ -179,10 +184,17 @@ stub_tool() {
     grep -q -- "\"$STUB_BIN/codex resume\"" "$STUB_LOG"
 }
 
-@test "new-window commands use the pane's working directory" {
+@test "new-window commands defer the working directory to tmux via a double-hash-escaped format, not a resolved path" {
+    # "##{pane_current_path}" defers both resolution and expansion to tmux
+    # itself, resolving only when new-window's own -c handling expands the
+    # placeholder *after* parsing (see the comment in ai-tools-menu.sh for
+    # why escaping the value up front -- #{q:...} -- isn't sufficient: it
+    # doesn't cover a literal newline or tab, which tmux's own parser
+    # treats specially regardless of escaping elsewhere in the value).
     make_tmux_stub
     stub_tool claude
     run bash "$SCRIPT"
     [ "$status" -eq 0 ]
-    grep -q -- '-c "/home/testuser/project"' "$STUB_LOG"
+    grep -q -- '-c "##{pane_current_path}"' "$STUB_LOG"
+    run ! grep -q "/home/testuser/project" "$STUB_LOG"
 }

@@ -178,12 +178,18 @@ resolve_session_id() {
 # namespace, not just provider config: a real running process also carries
 # vars like CLAUDE_CODE_SESSION_ID and CLAUDE_CODE_MESSAGING_TOKEN (a live
 # inter-process auth secret), which must never be replayed into a restored
-# pane's command line. ANTHROPIC_* is matched by prefix (it's Anthropic's own
-# documented client-config namespace), CLAUDE_CODE_* only by exact,
-# individually-named flags known to affect provider/model behavior, plus
-# CLAUDE_CONFIG_DIR (selects an alternate profile directory, e.g.
-# ~/.claude-minimal). Extend the CLAUDE_CODE_ names below deliberately, one
-# at a time -- never widen it to a prefix match.
+# pane's command line. ANTHROPIC_* is not matched by prefix either: it also
+# holds credentials (ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN,
+# ANTHROPIC_CUSTOM_HEADERS, ...), so only the explicit non-secret names in
+# classify_claude_env_entry are replayed with a value. CLAUDE_CODE_* is
+# matched only by exact, individually-named flags known to affect
+# provider/model behavior, plus CLAUDE_CONFIG_DIR (selects an alternate
+# profile directory, e.g. ~/.claude-minimal). Extend those names deliberately,
+# one at a time -- never widen them to a prefix match.
+#
+# Any other non-empty ANTHROPIC_* value is never written to the save file or
+# the restore command line; it goes to a private file that the restore
+# command sources (see write_claude_secret_env_file).
 #
 # The value is always included once the name matches, even when empty: some
 # of the project's own shell wrapper functions deliberately export e.g.
@@ -213,6 +219,81 @@ resolve_session_id() {
 # shellcheck disable=SC2016 # deliberately unexpanded here; see comment above
 CLAUDE_ENV_CLEAR_PREFIX='unset "${!ANTHROPIC_@}" CLAUDE_CONFIG_DIR CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC CLAUDE_CODE_AUTO_COMPACT_WINDOW CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK; '
 
+# Classifies one process environment entry: "inline" (safe to replay in the
+# restore command), "secret" (ANTHROPIC_* value that must stay out of the
+# command line and the save file, see write_claude_secret_env_file) or
+# "skip" (not ours).
+#
+# ANTHROPIC_* is NOT allowlisted by prefix: only an explicit list of
+# non-secret names is replayed with its value. An empty value is always
+# replayed (deliberate override, e.g. ANTHROPIC_API_KEY=""), as is nothing
+# else. A base URL carrying userinfo ("://user:pass@") counts as a secret.
+classify_claude_env_entry() {
+    local key="$1" value="$2"
+
+    case "$key" in
+    ANTHROPIC_[A-Z0-9_]*)
+        [ -n "$value" ] || {
+            echo inline
+            return 0
+        }
+        case "$key" in
+        ANTHROPIC_MODEL | ANTHROPIC_SMALL_FAST_MODEL | ANTHROPIC_BASE_URL | \
+            ANTHROPIC_DEFAULT_*_MODEL)
+            if [[ "$value" =~ ://[^/]*@ ]]; then
+                echo secret
+            else
+                echo inline
+            fi
+            ;;
+        *) echo secret ;;
+        esac
+        ;;
+    CLAUDE_CONFIG_DIR | \
+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC | \
+        CLAUDE_CODE_AUTO_COMPACT_WINDOW | \
+        CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK)
+        echo inline
+        ;;
+    *) echo skip ;;
+    esac
+}
+
+# Writes the resolved process's secret ANTHROPIC_* values (API key, auth
+# token, custom headers, URLs with userinfo, ...) to a private per-session
+# file next to the save file, as "export KEY=value" lines, and prints the
+# file's path. The restore command only sources that path, so the secret
+# never appears in the save file, the typed command line, shell history or
+# pane contents. Prints nothing when the process had no secret values; a
+# file that is no longer needed is left to the pruning at the end of the
+# script, which keeps files older save files still reference.
+write_claude_secret_env_file() {
+    local pid="$1" session_id="$2" entry key value body="" file tmp
+
+    file="${SECRET_ENV_DIR}/${session_id}.env"
+
+    if [ -n "$pid" ] && [ -r "/proc/$pid/environ" ]; then
+        while IFS= read -r -d '' entry; do
+            key="${entry%%=*}"
+            value="${entry#*=}"
+            [ "$(classify_claude_env_entry "$key" "$value")" = secret ] || continue
+            body+="export ${key}=$(printf '%q' "$value")"$'\n'
+        done <"/proc/$pid/environ"
+    fi
+
+    [ -n "$body" ] || return 0
+
+    (
+        umask 077
+        mkdir -p "$SECRET_ENV_DIR"
+        chmod 700 "$SECRET_ENV_DIR"
+        tmp="$(mktemp "${SECRET_ENV_DIR}/.env.XXXXXX")"
+        printf '%s' "$body" >"$tmp"
+        mv "$tmp" "$file"
+    )
+    printf '%s' "$file"
+}
+
 capture_claude_env_prefix() {
     local pid="$1"
     local entry key value entries=() sorted prefix=""
@@ -222,14 +303,9 @@ capture_claude_env_prefix() {
     while IFS= read -r -d '' entry; do
         key="${entry%%=*}"
         value="${entry#*=}"
-        case "$key" in
-        ANTHROPIC_* | CLAUDE_CONFIG_DIR | \
-            CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC | \
-            CLAUDE_CODE_AUTO_COMPACT_WINDOW | \
-            CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK)
+        if [ "$(classify_claude_env_entry "$key" "$value")" = inline ]; then
             entries+=("${key}=$(printf '%q' "$value")")
-            ;;
-        esac
+        fi
     done <"/proc/$pid/environ"
 
     [ "${#entries[@]}" -gt 0 ] || return 0
@@ -254,7 +330,7 @@ process_claude_pane_line() {
     local raw_line="$1"
     local session_name window_number pane_index dir
     local window_id="" pane_id="" match_line pane_dir
-    local resolved="" session_id="" pid="" env_prefix=""
+    local resolved="" session_id="" pid="" env_prefix="" secret_file=""
 
     session_name="$(cut -d $'\t' -f2 <<<"$raw_line")"
     window_number="$(cut -d $'\t' -f3 <<<"$raw_line")"
@@ -276,19 +352,25 @@ process_claude_pane_line() {
         pid="$(cut -d $'\t' -f2 <<<"$resolved")"
     fi
 
-    if [ -n "$session_id" ]; then
+    if [[ "$session_id" =~ ^[A-Za-z0-9_-]+$ ]]; then
         # A failure here (unreadable /proc/<pid>/environ: race, permissions)
         # must not cost us the already-resolved session_id -- caught locally
         # instead of left to the surrounding "set -e", which would otherwise
         # abort this whole subshell and fall back to the bare picker.
         env_prefix="$(capture_claude_env_prefix "$pid" 2>/dev/null)" || env_prefix=""
-        printf ':%s%sclaude --resume %s' "$CLAUDE_ENV_CLEAR_PREFIX" "$env_prefix" "$session_id"
+        secret_file="$(write_claude_secret_env_file "$pid" "$session_id" 2>/dev/null)" || secret_file=""
+        if [ -n "$secret_file" ]; then
+            printf ':%s( . %s; %sclaude --resume %s )' "$CLAUDE_ENV_CLEAR_PREFIX" "$(printf '%q' "$secret_file")" "$env_prefix" "$session_id"
+        else
+            printf ':%s%sclaude --resume %s' "$CLAUDE_ENV_CLEAR_PREFIX" "$env_prefix" "$session_id"
+        fi
     else
         printf ':claude --resume'
     fi
 }
 
 RESURRECT_DIR="$(dirname "$RESURRECT_FILE")"
+SECRET_ENV_DIR="${RESURRECT_DIR}/claude-env"
 TMPFILE="$(mktemp "${RESURRECT_DIR}/.resurrect-claude-hook.XXXXXX")"
 trap 'rm -f "$TMPFILE"' EXIT
 
@@ -343,3 +425,17 @@ while IFS= read -r raw_line || [ -n "$raw_line" ]; do
 done <"$RESURRECT_FILE" >"$TMPFILE"
 
 mv "$TMPFILE" "$RESURRECT_FILE"
+
+# An env file is only stale once no save file in the directory references it:
+# tmux-resurrect keeps older tmux_resurrect_*.txt files (and "last" may be
+# pointed at one), and pruning against the current save alone would leave
+# those with a dangling env path.
+if [ -d "$SECRET_ENV_DIR" ]; then
+    rm -f "$SECRET_ENV_DIR"/.env.*
+    for stale_file in "$SECRET_ENV_DIR"/*.env; do
+        [ -e "$stale_file" ] || continue
+        quoted_stale="$(printf '%q' "$stale_file")"
+        grep -qF -- "$quoted_stale" "$RESURRECT_FILE" "$RESURRECT_DIR"/tmux_resurrect_*.txt 2>/dev/null ||
+            rm -f "$stale_file"
+    done
+fi

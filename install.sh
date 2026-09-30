@@ -27,6 +27,16 @@ INSTALLED_GIT_FILE="$INSTALL_DIR/.tmux/VERSION_GIT"
 BASHRC="$HOME/.bashrc"
 SOURCE_LINE="[ -f ~/.tmux.bash ] && . ~/.tmux.bash"
 
+# True if $1 contains SOURCE_LINE as a whole line (surrounding whitespace
+# ignored). A fixed-string comparison: the line is not a regex, a commented-out
+# copy or a variant such as "test -f ... && . ..." does not count.
+bashrc_has_source_line() {
+    awk -v line="$SOURCE_LINE" '
+        { gsub(/^[ \t]+|[ \t\r]+$/, ""); if ($0 == line) found = 1 }
+        END { exit !found }
+    ' "$1"
+}
+
 echo_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
 }
@@ -43,12 +53,15 @@ echo_warning() {
     echo -e "${YELLOW}[WARNING]${NC} $1"
 }
 
+FORCE=false
+
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
         --help|-h)
         echo "Usage: $0            Install vybemux"
         echo "       $0 --status   Show installation status"
+        echo "       $0 --force    Install even if tmux is older than 3.5"
         exit 0
         ;;
     --status)
@@ -112,14 +125,24 @@ while [[ $# -gt 0 ]]; do
         fi
 
         if [ -d "$TMUX_PLUGINS_DIR" ]; then
-            echo_success "Plugins directory found: $TMUX_PLUGINS_DIR"
+            if [ -L "$TMUX_PLUGINS_DIR" ]; then
+                echo_success "Plugins directory found: $TMUX_PLUGINS_DIR -> $(readlink "$TMUX_PLUGINS_DIR")"
+                if [ "$(readlink -f "$TMUX_PLUGINS_DIR")" != "$(readlink -f "$REPO_DIR/plugins")" ]; then
+                    echo_warning "Plugins link to another checkout, not $REPO_DIR; the plugin versions below are from there"
+                fi
+            else
+                echo_success "Plugins directory found: $TMUX_PLUGINS_DIR"
+            fi
             INSTALLED=true
+        elif [ -L "$TMUX_PLUGINS_DIR" ]; then
+            echo_warning "Plugins symlink is dangling: $TMUX_PLUGINS_DIR -> $(readlink "$TMUX_PLUGINS_DIR")"
+            echo_warning "The vybemux source directory was moved or deleted; run ./install.sh from the current checkout"
         else
             echo_warning "Plugins directory not found: $TMUX_PLUGINS_DIR"
         fi
 
         if [ -f "$BASHRC" ]; then
-            if grep -q "$SOURCE_LINE" "$BASHRC"; then
+            if bashrc_has_source_line "$BASHRC"; then
                 echo_success "Source line found in ~/.bashrc"
             else
                 echo_warning "Source line NOT found in ~/.bashrc"
@@ -132,7 +155,7 @@ while [[ $# -gt 0 ]]; do
         echo -e "${BLUE}--- tmux Information ---${NC}"
 
         if command -v tmux &>/dev/null; then
-            TMUX_VERSION=$(tmux -V | sed 's/tmux //')
+            TMUX_VERSION=$(tmux -V | sed 's/^tmux //; s/^[^0-9]*//')
             echo_info "tmux version: $TMUX_VERSION ($(command -v tmux))"
         else
             echo_warning "tmux not installed"
@@ -204,9 +227,13 @@ while [[ $# -gt 0 ]]; do
         echo ""
         exit 0
         ;;
+    --force)
+        FORCE=true
+        shift
+        ;;
         *)
             echo_error "Unknown parameter: $1"
-            echo "Usage: $0  or  $0 --status"
+            echo "Usage: $0  [--force]  or  $0 --status"
             exit 1
             ;;
     esac
@@ -221,14 +248,21 @@ if ! command -v tmux &>/dev/null; then
     exit 1
 fi
 
-# Check tmux version (require at least 3.2 for display-menu -OM)
-TMUX_VERSION=$(tmux -V | sed 's/tmux //')
+# Check tmux version (require at least 3.5 for extended-keys-format and display-menu -M)
+TMUX_VERSION=$(tmux -V | sed 's/^tmux //; s/^[^0-9]*//')
 echo_info "tmux version: $TMUX_VERSION"
-TMUX_MAJOR=$(echo "$TMUX_VERSION" | cut -d. -f1)
+TMUX_MAJOR=$(echo "$TMUX_VERSION" | cut -d. -f1 | tr -cd '0-9')
 TMUX_MINOR=$(echo "$TMUX_VERSION" | cut -d. -f2 | tr -cd '0-9')
-if [[ $TMUX_MAJOR -lt 3 ]] || [[ $TMUX_MAJOR -eq 3 && $TMUX_MINOR -lt 2 ]]; then
-    echo_warning "vybemux requires tmux >= 3.2. Your version: $TMUX_VERSION"
-    echo_warning "Some features may not work correctly (display-menu -OM)."
+if [[ -z "$TMUX_MAJOR" || -z "$TMUX_MINOR" ]]; then
+    echo_warning "Could not determine the tmux version ($TMUX_VERSION); vybemux requires tmux >= 3.5."
+elif [[ $TMUX_MAJOR -lt 3 ]] || [[ $TMUX_MAJOR -eq 3 && $TMUX_MINOR -lt 5 ]]; then
+    echo_error "vybemux requires tmux >= 3.5. Your version: $TMUX_VERSION"
+    echo_error "The config uses extended-keys-format and display-menu -M (both new in 3.5) and will not load on older tmux."
+    if [[ "$FORCE" != true ]]; then
+        echo "Upgrade tmux, or re-run with --force to install anyway. Nothing was changed."
+        exit 1
+    fi
+    echo_warning "Continuing because --force was given."
 fi
 
 # Check if plugin submodules are populated
@@ -249,10 +283,21 @@ for plugin_file in "${required_plugin_files[@]}"; do
     exit 1
 done
 
+# Validate the new config before touching $HOME: a broken tmux.conf must not
+# replace a working installation.
+echo_info "Validating new tmux configuration before installing..."
+if ! "$REPO_DIR/scripts/validate-tmux-conf.sh" "$REPO_DIR/tmux.conf"; then
+    echo_error "The new tmux.conf has syntax errors. Nothing was changed."
+    exit 1
+fi
+
 # Create backup directory
 echo_info "Creating backup of existing files..."
 mkdir -p "$BACKUP_ROOT"
 BACKUP_DIR="$(mktemp -d "$BACKUP_ROOT/$(date +%Y-%m-%d_%H%M%S).XXXXXX")"
+
+BACKUP_HANDLED=()
+BACKUP_MOVED=()
 
 backup_if_exists() {
     local source="$1"
@@ -261,8 +306,44 @@ backup_if_exists() {
     if [ -e "$source" ] || [ -L "$source" ]; then
         echo_info "Backing up: $source"
         mv "$source" "$backup_path"
+        BACKUP_MOVED+=("$source")
+    fi
+    BACKUP_HANDLED+=("$source")
+}
+
+# Only paths whose backup step finished are touched: what was moved into the
+# backup is put back, what did not exist before is removed. A path the backup
+# phase never reached (aborted or interrupted earlier) still holds the user's
+# original data and is left alone.
+restore_previous_installation() {
+    local path candidate failed=false
+    set +e
+    for path in ${BACKUP_HANDLED[@]+"${BACKUP_HANDLED[@]}"}; do
+        rm -rf "$path" || failed=true
+        for candidate in ${BACKUP_MOVED[@]+"${BACKUP_MOVED[@]}"}; do
+            if [[ "$candidate" == "$path" ]]; then
+                mv "$BACKUP_DIR/$(basename "$path")" "$path" || failed=true
+            fi
+        done
+    done
+    if [[ "$failed" == true ]]; then
+        echo_error "Some files could not be restored automatically; the originals are in $BACKUP_DIR"
+    else
+        rmdir "$BACKUP_DIR" "$BACKUP_ROOT" 2>/dev/null
     fi
 }
+
+INSTALL_COMPLETE=false
+rollback_on_incomplete_install() {
+    local exit_code=$?
+    if [[ "$INSTALL_COMPLETE" != true && $exit_code -ne 0 ]]; then
+        echo_error "Installation did not complete; restoring the previous installation"
+        restore_previous_installation
+    fi
+}
+trap rollback_on_incomplete_install EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # Backup existing files
 backup_if_exists "$TMUX_CONF"
@@ -295,6 +376,8 @@ fi
 git -C "$REPO_DIR" describe --tags --always >"$INSTALLED_GIT_FILE" 2>/dev/null || true
 cp "$REPO_DIR/scripts/shorten-path.sh" "$TMUX_SCRIPTS_DIR/shorten-path.sh"
 chmod +x "$TMUX_SCRIPTS_DIR/shorten-path.sh"
+cp "$REPO_DIR/scripts/git-branch.sh" "$TMUX_SCRIPTS_DIR/git-branch.sh"
+chmod +x "$TMUX_SCRIPTS_DIR/git-branch.sh"
 cp "$REPO_DIR/scripts/cheatsheet.sh" "$TMUX_SCRIPTS_DIR/cheatsheet.sh"
 chmod +x "$TMUX_SCRIPTS_DIR/cheatsheet.sh"
 cp "$REPO_DIR/scripts/tui-tab.sh" "$TMUX_SCRIPTS_DIR/tui-tab.sh"
@@ -328,7 +411,7 @@ echo_success "Plugins linked: $TMUX_PLUGINS_DIR -> $REPO_DIR/plugins"
 echo_info "Checking ~/.bashrc..."
 
     if [ -f "$BASHRC" ]; then
-        if grep -q "$SOURCE_LINE" "$BASHRC"; then
+        if bashrc_has_source_line "$BASHRC"; then
             echo_success "\$HOME/.bashrc already sources \$HOME/.tmux.bash"
         else
             echo_warning "\$HOME/.bashrc does not source \$HOME/.tmux.bash"
@@ -356,6 +439,7 @@ else
     echo_error "tmux configuration has syntax errors"
     exit 1
 fi
+INSTALL_COMPLETE=true
 
 # Restore from backup if available (optional)
 echo_info "Restoring previous tmux session if available..."

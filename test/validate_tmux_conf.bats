@@ -39,6 +39,34 @@ teardown() {
     [[ "$output" == *"unknown command"* ]]
 }
 
+@test "the user's own ~/.tmux.conf is not loaded before the validated file" {
+    local fixture_home="$BATS_TEST_TMPDIR/home"
+    mkdir -p "$fixture_home"
+    printf 'set -g @ambient-loaded yes\n' >"$fixture_home/.tmux.conf"
+    printf '%s\n' "if-shell -F '#{@ambient-loaded}' 'this-is-not-a-real-tmux-command'" \
+        >"$BATS_TEST_TMPDIR/probe.conf"
+
+    run env HOME="$fixture_home" bash "$SCRIPT" "$BATS_TEST_TMPDIR/probe.conf"
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"tmux.conf is syntactically valid"* ]]
+}
+
+@test "a broken ~/.tmux.conf neither hides nor causes errors in the validated file" {
+    local fixture_home="$BATS_TEST_TMPDIR/home-broken"
+    mkdir -p "$fixture_home"
+    printf 'this-is-not-a-real-tmux-command\n' >"$fixture_home/.tmux.conf"
+    printf 'set -g mouse on\n' >"$BATS_TEST_TMPDIR/valid.conf"
+    printf 'set -g mouse on\nthis-is-also-not-a-command\n' >"$BATS_TEST_TMPDIR/broken.conf"
+
+    run env HOME="$fixture_home" bash "$SCRIPT" "$BATS_TEST_TMPDIR/valid.conf"
+    [ "$status" -eq 0 ]
+
+    run env HOME="$fixture_home" bash "$SCRIPT" "$BATS_TEST_TMPDIR/broken.conf"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"unknown command"* ]]
+}
+
 @test "a missing config file yields an error" {
     run bash "$SCRIPT" "$BATS_TEST_TMPDIR/does-not-exist.conf"
     [ "$status" -eq 1 ]
@@ -74,4 +102,16 @@ teardown() {
         @vybemux-resurrect-hook-post-save-all
     [ "$status" -eq 0 ]
     [ "$output" = "printf legacy-hook" ]
+}
+
+@test "the clipboard reaches the terminal through tmux's own OSC 52, not through a copy command" {
+    grep -qx 'set -g set-clipboard on' "$PROJECT_CONFIG"
+
+    run grep '^set -goq @override_copy_command' "$PROJECT_CONFIG"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *'52;'* ]]
+    [[ "$output" != *'base64'* ]]
+    [ "$output" = "set -goq @override_copy_command 'cat >/dev/null'" ]
+    run grep '@custom_copy_command' "$PROJECT_CONFIG"
+    [ "$status" -ne 0 ]
 }

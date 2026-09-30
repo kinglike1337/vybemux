@@ -232,3 +232,19 @@ EOF
 
     [ "$status" -eq 0 ]
 }
+
+@test "permission hook keeps the root dedicated and locks down the claude env files" {
+    local resurrect_dir="$BATS_TEST_TMPDIR/with-env"
+    mkdir -p "$resurrect_dir/claude-env"
+    printf 'layout\n' >"$resurrect_dir/tmux_resurrect_20260905T120000.txt"
+    printf 'export ANTHROPIC_API_KEY=x\n' >"$resurrect_dir/claude-env/s1.env"
+    chmod 755 "$resurrect_dir" "$resurrect_dir/claude-env"
+    chmod 644 "$resurrect_dir/claude-env/s1.env"
+
+    run "$SCRIPT" "$resurrect_dir"
+
+    [ "$status" -eq 0 ]
+    [ "$(stat -c %a "$resurrect_dir")" = "700" ]
+    [ "$(stat -c %a "$resurrect_dir/claude-env")" = "700" ]
+    [ "$(stat -c %a "$resurrect_dir/claude-env/s1.env")" = "600" ]
+}

@@ -77,7 +77,10 @@ connection:
 
 - `set-clipboard on` — enables OSC 52 clipboard passthrough
 - `allow-passthrough on` — allows nested OSC 52 sequences (e.g., vim inside tmux inside Ghostty)
-- `tmux-yank`'s `@custom_copy_command` forces OSC 52 so yanks always reach the local clipboard, without needing `xsel`/`xclip` on the remote host
+- `tmux-yank`'s `@override_copy_command` is a no-op sink: yanks behave the
+  same on every host (no failing `xsel`/`xclip` without `DISPLAY`) and its yank
+  keys stay bound; the OSC 52 sequence itself comes from tmux
+  (`set-clipboard on`)
 
 Ghostty supports OSC 52 writes natively, so no client-side configuration is
 needed beyond the SSH integration described in [Ghostty (client setup)](#ghostty-client-setup).
@@ -107,7 +110,9 @@ If clipboard doesn't work:
 ## Requirements
 
 - Linux on the remote host
-- tmux >= 3.2 (tested with 3.5a)
+- tmux >= 3.5 (`extended-keys-format` and `display-menu -M` were added in 3.5;
+  tested with 3.5a and 3.6b); `./install.sh` aborts on older versions before
+  changing anything unless you pass `--force`
 - bash
 - git
 - jq (required for picker-free Claude Code resume; without it, restore falls
@@ -137,6 +142,18 @@ generated "Source Code" archives: Git host archives contain empty submodule
 directories, while the attached vybemux archive includes every bundled plugin
 and the bats-core test runner.
 
+Release archives are currently published only on the maintainers' own Gitea
+instance; releases and archives are not mirrored here. If you are reading this
+on the public mirror, install [From Git](#from-git) with
+`--recurse-submodules` instead.
+
+**Keep the source directory.** `~/.tmux/plugins` is a symlink into the
+`plugins/` directory of the clone (or extracted release archive) you ran
+`./install.sh` from. If you delete or move that directory, all plugins (TPM,
+resurrect, continuum, yank) stop working. After moving it, run `./install.sh`
+again from the new location; `./install.sh --status` reports a dangling
+plugins symlink.
+
 ```bash
 ./install.sh --status          # Shows current installation status
 ./install.sh --help            # Shows all options
@@ -157,6 +174,12 @@ during installation, harden existing data once with:
 ```bash
 ~/.tmux/scripts/harden-resurrect-permissions.sh /path/to/resurrect
 ```
+
+Restored Claude Code panes get provider credentials (API key, auth token,
+custom headers) from a private `claude-env/` directory inside the resurrect
+directory instead of from the save file. Save files written by older versions
+may still contain an `ANTHROPIC_API_KEY=...` in clear text: delete old
+`tmux_resurrect_*.txt` files once and trigger a new save.
 
 Set `@vybemux-resurrect-hook-post-save-all` in `~/.tmux.conf.local` to chain a
 custom command after permission hardening. On the first upgrade, an existing
@@ -211,10 +234,19 @@ cd vybemux
 The uninstall script will:
 - Remove `~/.tmux.conf`
 - Remove `~/.tmux.bash`
-- Remove `~/.tmux/` directory
+- Remove only what the installer put into `~/.tmux/` (`scripts/`, the
+  `plugins` symlink, `VERSION`, `VERSION_GIT`) and the directory itself if
+  that leaves it empty. Everything else in `~/.tmux/`, in particular saved
+  tmux-resurrect sessions in `~/.tmux/resurrect/`, is kept; the script lists
+  those entries before asking for confirmation. Files you added to
+  `~/.tmux/scripts/` are kept too.
 - Remove vybemux source line from `~/.bashrc`
 - Optionally remove `~/.vybemux-backup/` directory
 - Backup your `.bashrc` before modification
+
+The kept resurrect data (also under `~/.local/share/tmux/resurrect`) may
+contain a `claude-env/` directory with provider credentials of restored Claude
+Code sessions; delete it manually if you do not plan to reinstall.
 
 The personal `~/.tmux.conf.local` override remains in place so uninstalling or
 reinstalling vybemux never deletes user-authored customizations. Remove that
@@ -222,7 +254,12 @@ file manually if it is no longer needed.
 
 **Note:** After uninstall, restart your shell or run `tmux kill-server` if tmux is still running.
 
-## Cutting a Release
+## Cutting a Release (Maintainers)
+
+This section describes the maintainers' own release process. It relies on the
+Release workflow (`.gitea/workflows/release.yml`) and CI of the maintainers'
+internal Gitea instance, which are not part of the public mirror of this
+repository; contributors do not need it.
 
 Releases use a protected two-phase sequence. First, create a dedicated release
 branch that changes `VERSION` to the target SemVer and commit it with the exact
@@ -251,6 +288,11 @@ manual script — merge the PRs it opens:
   default branch tip.
 - `test/bats-core` (the test runner) is pinned to a release tag in
   `.gitmodules` and gets its own PR only when a newer tag is published.
+
+`renovate.json` also covers the GitHub Actions used by the maintainers'
+internal CI and the pre-commit hooks. The Actions workflows are not part of the
+public mirror, so that rule has nothing to match there; the submodule and
+pre-commit rules apply as described.
 
 To update without Renovate:
 
